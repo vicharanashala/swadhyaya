@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   CONCEPT_BY_ID,
   PHASES,
+  getNextConceptId,
+  getUnlocked,
   type ConceptId,
 } from "@/lib/curriculum";
 import { useProgress, useIsUnlocked } from "@/lib/progress";
@@ -12,7 +14,7 @@ import { QUESTIONS_BY_CONCEPT, type Question } from "@/lib/questions";
 import { Playground } from "@/components/playground/Playground";
 import { QuestionCard } from "@/components/question/QuestionCard";
 import { QuestionNav } from "@/components/question/QuestionNav";
-import { Lock, Check, Sparkles, ArrowLeft } from "lucide-react";
+import { Lock, Check, Sparkles, ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const fireConfetti = async () => {
@@ -33,7 +35,7 @@ const fireConfetti = async () => {
   });
 };
 
-type Tab = "story" | "play" | "test" | "whyCare" | "strang" | "connect";
+type Tab = "story" | "play" | "test";
 
 export function ConceptPage({ id }: { id: ConceptId }) {
   const router = useRouter();
@@ -63,9 +65,6 @@ export function ConceptPage({ id }: { id: ConceptId }) {
         "1": "story",
         "2": "play",
         "3": "test",
-        "4": concept.whyCare ? "whyCare" : "",
-        "5": concept.strang ? "strang" : "",
-        "6": concept.prereqs.length > 0 ? "connect" : "",
       };
       const next = map[e.key];
       if (next) {
@@ -77,12 +76,18 @@ export function ConceptPage({ id }: { id: ConceptId }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [concept.whyCare, concept.strang, concept.prereqs.length, router]);
+  }, [router]);
 
   const phaseMeta = useMemo(
     () => PHASES.find((p) => p.id === concept.phase)!,
     [concept.phase],
   );
+
+  const nextId = useMemo(() => getNextConceptId(concept.id), [concept.id]);
+  const nextConcept = nextId ? CONCEPT_BY_ID[nextId] : null;
+  const nextUnlocked = nextId
+    ? getUnlocked(new Set(completed)).has(nextId)
+    : false;
 
   if (!isUnlocked) {
     return (
@@ -185,36 +190,6 @@ export function ConceptPage({ id }: { id: ConceptId }) {
         >
           Test
         </TabButton>
-        {concept.whyCare && (
-          <TabButton
-            active={tab === "whyCare"}
-            onClick={() => setTab("whyCare")}
-            n={4}
-            id="tab-why"
-          >
-            Why care
-          </TabButton>
-        )}
-        {concept.strang && (
-          <TabButton
-            active={tab === "strang"}
-            onClick={() => setTab("strang")}
-            n={5}
-            id="tab-strang"
-          >
-            Formal layer
-          </TabButton>
-        )}
-        {concept.prereqs.length > 0 && (
-          <TabButton
-            active={tab === "connect"}
-            onClick={() => setTab("connect")}
-            n={6}
-            id="tab-connect"
-          >
-            Connect
-          </TabButton>
-        )}
         {puzzleSolved && (
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-accent">
             <Check size={12} aria-hidden="true" /> Locked in
@@ -222,7 +197,7 @@ export function ConceptPage({ id }: { id: ConceptId }) {
         )}
         <span className="ml-auto hidden lg:inline-flex items-center gap-2 text-[10px] text-faint font-mono">
           <kbd className="px-1.5 py-0.5 rounded border border-line bg-elev/50">
-            1–6
+            1–3
           </kbd>
           tabs
           <kbd className="px-1.5 py-0.5 rounded border border-line bg-elev/50 ml-1">
@@ -234,17 +209,6 @@ export function ConceptPage({ id }: { id: ConceptId }) {
 
       {tab === "story" && <StoryTab story={concept.story} />}
       {tab === "play" && <Playground id={concept.playground} />}
-      {tab === "whyCare" && concept.whyCare && (
-        <WhyCareTab text={concept.whyCare} />
-      )}
-      {tab === "strang" && concept.strang && <StrangTab text={concept.strang} />}
-      {tab === "connect" && (
-        <ConnectTab
-          prereqs={concept.prereqs}
-          currentId={concept.id}
-          completed={completed}
-        />
-      )}
       {tab === "test" && (
         <TestTab
           questions={questions}
@@ -254,6 +218,25 @@ export function ConceptPage({ id }: { id: ConceptId }) {
             fireConfetti();
           }}
           alreadyDone={isDone}
+          nextConcept={
+            nextConcept
+              ? {
+                  id: nextConcept.id,
+                  title: nextConcept.title,
+                  short: nextConcept.short,
+                  phase: nextConcept.phase,
+                  xp: nextConcept.xp,
+                }
+              : null
+          }
+          nextUnlocked={nextUnlocked}
+          onGoToNext={() => router.push(`/learn/${nextConcept?.id}`)}
+          onRetake={() => {
+            // Force the student to re-watch the story & play with the
+            // playground before retaking. Reset all answers and switch
+            // to the story tab.
+            setTab("story");
+          }}
         />
       )}
     </div>
@@ -318,116 +301,32 @@ function StoryTab({ story }: { story: string }) {
   );
 }
 
-function WhyCareTab({ text }: { text: string }) {
-  return (
-    <div className="bg-card border border-line rounded-xl p-6">
-      <div className="text-[10px] text-warn uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        <Sparkles size={11} aria-hidden="true" /> Why should you care?
-      </div>
-      <p className="font-serif text-lg leading-relaxed text-ink/90">{text}</p>
-      <p className="text-xs text-dim mt-4">
-        The intuition you build here shows up everywhere. The playground is the
-        practice. Now open the playground tab and play.
-      </p>
-    </div>
-  );
-}
-
-function StrangTab({ text }: { text: string }) {
-  return (
-    <div className="bg-card border border-line rounded-xl p-6">
-      <div className="text-[10px] text-faint uppercase tracking-wider mb-3 flex items-center gap-1.5">
-        Formal layer · Gilbert Strang
-      </div>
-      <p className="font-serif text-base leading-relaxed text-ink/90">{text}</p>
-      <p className="text-xs text-dim mt-4">
-        The interactive playground above IS the geometry Strang describes in
-        symbols. Watch the picture move, then read the algebra — same idea, two
-        languages.
-      </p>
-    </div>
-  );
-}
-
-function ConnectTab({
-  prereqs,
-  currentId: _currentId,
-  completed,
-}: {
-  prereqs: ConceptId[];
-  currentId: ConceptId;
-  completed: ConceptId[];
-}) {
-  const prereqConcepts = useMemo(
-    () =>
-      prereqs
-        .map((id) => CONCEPT_BY_ID[id])
-        .filter(
-          (c): c is (typeof CONCEPT_BY_ID)[ConceptId] => c !== undefined,
-        ),
-    [prereqs],
-  );
-  return (
-    <div className="space-y-4">
-      <div className="bg-card border border-line rounded-xl p-6">
-        <div className="text-[10px] text-faint uppercase tracking-wider mb-3">
-          This concept rests on
-        </div>
-        <div className="space-y-2">
-          {prereqConcepts.length === 0 ? (
-            <p className="text-sm text-dim">
-              This is a starting concept — no prerequisites.
-            </p>
-          ) : (
-            prereqConcepts.map((c) => {
-              const done = completed.includes(c.id);
-              return (
-                <Link
-                  key={c.id}
-                  href={`/learn/${c.id}`}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition ${
-                    done
-                      ? "border-accent/30 bg-accent/5 hover:bg-accent/10"
-                      : "border-line bg-elev/30 hover:bg-elev/60"
-                  }`}
-                >
-                  <span
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                    style={{
-                      background: "var(--bg-elev)",
-                      color: done ? "var(--accent)" : "var(--ink-dim)",
-                    }}
-                  >
-                    {c.id}
-                  </span>
-                  <span className="text-sm text-ink flex-1">{c.title}</span>
-                  {done ? (
-                    <span className="text-[10px] text-accent">✓ locked in</span>
-                  ) : (
-                    <span className="text-[10px] text-faint">review</span>
-                  )}
-                </Link>
-              );
-            })
-          )}
-        </div>
-      </div>
-      <div className="bg-elev/40 border border-line rounded-xl p-4 text-xs text-dim leading-relaxed">
-        The curriculum is a directed graph: each concept unlocks the next. The
-        chain never breaks. Every concept is downstream of everything above it.
-      </div>
-    </div>
-  );
-}
+// Minimum score to advance to the next story. Below this the student
+// must re-watch the story / play with the playground before retaking.
+const PASS_THRESHOLD = 0.7;
 
 function TestTab({
   questions,
   onPass,
   alreadyDone,
+  nextConcept,
+  nextUnlocked,
+  onGoToNext,
+  onRetake,
 }: {
   questions: Question[];
   onPass: () => void;
   alreadyDone: boolean;
+  nextConcept: {
+    id: string;
+    title: string;
+    short: string;
+    phase: number;
+    xp: number;
+  } | null;
+  nextUnlocked: boolean;
+  onGoToNext: () => void;
+  onRetake: () => void;
 }) {
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -452,8 +351,10 @@ function TestTab({
   const q = questions[idx];
   if (!q) return null;
   const answeredCount = Object.keys(submitted).length;
-  const allCorrect =
-    answeredCount === questions.length && correctCount === questions.length;
+  const finished = answeredCount === questions.length;
+  const scorePct = finished ? (correctCount / questions.length) * 100 : 0;
+  const passed = finished && scorePct >= PASS_THRESHOLD * 100;
+  const needed = Math.ceil(PASS_THRESHOLD * questions.length);
 
   const handleCheck = () => {
     const chosenId = answers[q.id];
@@ -478,6 +379,16 @@ function TestTab({
     setSubmitted(newSub);
   };
 
+  const handleFullReset = () => {
+    setIdx(0);
+    setAnswers({});
+    setSubmitted({});
+    setCorrectMap({});
+    setShowHint({});
+    setWrongAttempts({});
+    onRetake();
+  };
+
   return (
     <div className="grid md:grid-cols-[1fr_240px] gap-6">
       <div>
@@ -498,26 +409,152 @@ function TestTab({
           onNext={() => setIdx(idx + 1)}
         />
 
-        {allCorrect && (
-          <div className="mt-4 bg-accent/10 border border-accent/40 rounded-xl p-6 text-center">
-            <Sparkles
-              size={24}
-              className="mx-auto text-accent"
-              aria-hidden="true"
-            />
-            <h3 className="mt-2 font-serif text-xl text-ink">
-              All correct — locked in
+        {finished && (
+          <div
+            className={cn(
+              "mt-6 rounded-2xl p-8 text-center transition",
+              passed
+                ? "bg-gradient-to-b from-accent/15 via-accent/10 to-card border border-accent/40 shadow-[0_0_24px_-12px_var(--accent)]"
+                : "bg-warn/10 border border-warn/40",
+            )}
+          >
+            <div
+              className={cn(
+                "inline-flex items-center justify-center w-12 h-12 rounded-full border",
+                passed
+                  ? "bg-accent/20 border-accent/40"
+                  : "bg-warn/20 border-warn/40",
+              )}
+            >
+              {passed ? (
+                <Sparkles
+                  size={22}
+                  className="text-accent"
+                  aria-hidden="true"
+                />
+              ) : (
+                <RotateCcw
+                  size={22}
+                  className="text-warn"
+                  aria-hidden="true"
+                />
+              )}
+            </div>
+
+            <h3 className="mt-3 font-serif text-2xl text-ink">
+              {passed
+                ? "Passed — locked in"
+                : "Below the 70% threshold"}
             </h3>
             <p className="text-sm text-dim mt-1">
-              +{questions.reduce((s, qq) => s + qq.xp, 0)} XP earned
+              You scored{" "}
+              <span
+                className={cn(
+                  "font-mono font-semibold",
+                  passed ? "text-accent" : "text-warn",
+                )}
+              >
+                {correctCount}/{questions.length}
+              </span>{" "}
+              ({Math.round(scorePct)}%) — need at least {needed}/{questions.length}{" "}
+              ({Math.round(PASS_THRESHOLD * 100)}%) to continue.
             </p>
-            <button
-              onClick={onPass}
-              disabled={alreadyDone}
-              className="mt-4 px-5 py-2.5 rounded bg-accent text-canvas font-medium disabled:opacity-50"
-            >
-              {alreadyDone ? "Already locked in" : "Mark complete & continue"}
-            </button>
+
+            {passed && nextConcept && (
+              <div className="mt-5 mx-auto max-w-md">
+                <div className="text-[10px] text-faint uppercase tracking-widest mb-1.5">
+                  Next story
+                </div>
+                <div
+                  className="rounded-lg border border-line bg-card/60 px-4 py-3 text-left"
+                  aria-label="Next concept preview"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                      style={{
+                        background: `${PHASES.find((p) => p.id === nextConcept.phase)?.color ?? "#888"}20`,
+                        color:
+                          PHASES.find((p) => p.id === nextConcept.phase)?.color ??
+                          "#888",
+                      }}
+                    >
+                      {nextConcept.id}
+                    </span>
+                    <span className="text-[10px] text-faint">
+                      +{nextConcept.xp} XP
+                    </span>
+                    {!nextUnlocked && (
+                      <span className="ml-auto text-[10px] text-faint inline-flex items-center gap-1">
+                        <Lock size={10} aria-hidden="true" /> preview only
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-medium text-ink">
+                    {nextConcept.title}
+                  </div>
+                  <div className="text-xs text-dim mt-0.5">
+                    {nextConcept.short}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              {passed ? (
+                <>
+                  {nextConcept &&
+                    (alreadyDone ? (
+                      <Link
+                        href={`/learn/${nextConcept.id}`}
+                        className={cn(
+                          "px-6 py-3 rounded-lg font-semibold inline-flex items-center gap-2 transition text-base",
+                          nextUnlocked
+                            ? "bg-ink text-canvas hover:opacity-90 shadow-lg"
+                            : "border border-line bg-elev/40 text-dim hover:bg-elev",
+                        )}
+                      >
+                        {nextUnlocked
+                          ? "Continue to next story"
+                          : "Preview next story"}
+                        <ArrowRight size={16} aria-hidden="true" />
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          onPass();
+                          onGoToNext();
+                        }}
+                        className="px-6 py-3 rounded-lg bg-ink text-canvas font-semibold inline-flex items-center gap-2 hover:opacity-90 transition text-base shadow-lg"
+                      >
+                        Continue to next story
+                        <ArrowRight size={16} aria-hidden="true" />
+                      </button>
+                    ))}
+                  <button
+                    onClick={onPass}
+                    disabled={alreadyDone}
+                    className="px-4 py-2 rounded text-xs border border-line/50 text-dim hover:bg-elev disabled:opacity-40"
+                  >
+                    {alreadyDone ? "Already locked in" : "Mark complete only"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleFullReset}
+                  className="px-6 py-3 rounded-lg bg-ink text-canvas font-semibold inline-flex items-center gap-2 hover:opacity-90 transition text-base shadow-lg"
+                >
+                  Re-study the story & retake the test
+                  <ArrowLeft size={16} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+
+            {passed && !nextConcept && (
+              <p className="mt-4 text-xs text-accent font-medium">
+                You finished the entire curriculum. ✦
+              </p>
+            )}
           </div>
         )}
       </div>

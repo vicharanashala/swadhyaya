@@ -10,13 +10,24 @@ import { useState } from "react";
 // This widget makes the question concrete — the student doesn't pick
 // from "x = 4, x = 3, x = 5, x = 8" by guessing; they SEE the balance
 // tip when x = 4.
+//
+// Rotation sign convention:
+//   diff = left − right.  diff > 0 → LEFT heavy → left end dips.
+//   CSS rotate(deg) is clockwise (right end dips on positive deg).
+//   So the visible beam rotation is `−tilt` (sign-flipped) so that the
+//   heavy side is always the one that drops visually.
 
 export function QL1Q1Playground() {
   const [x, setX] = useState(0);
   const left = 2 * x + 3;
   const right = 11;
   const diff = left - right;
-  const tilt = Math.max(-15, Math.min(15, diff * 2.5)); // degrees
+  // diff > 0 → left side heavier → beam rotates so the LEFT end drops
+  // diff < 0 → right side heavier → beam rotates so the RIGHT end drops.
+  // CSS rotate(deg) is clockwise: positive makes the right end dip, so
+  // we negate the sign so that positive diff drops the LEFT end.
+  const tilt = Math.max(-15, Math.min(15, diff * 2.5)); // magnitude (deg)
+  const beamDeg = -tilt; // sign flip: heavy side dips
   const balanced = diff === 0;
 
   return (
@@ -34,7 +45,7 @@ export function QL1Q1Playground() {
         {/* Beam (tilts with the balance) */}
         <div
           className="absolute left-1/2 top-12 w-56 h-1 bg-ink/80 -translate-x-1/2 origin-center transition-transform duration-300"
-          style={{ transform: `translate(-50%, -50%) rotate(${tilt}deg)` }}
+          style={{ transform: `translate(-50%, -50%) rotate(${beamDeg}deg)` }}
         />
 
         {/* Fulcrum dot */}
@@ -42,8 +53,10 @@ export function QL1Q1Playground() {
 
         {/* Left pan (label and contents) */}
         <div
-          className="absolute left-4 top-8 w-32 transition-transform duration-300"
-          style={{ transform: `translateY(${tilt > 0 ? Math.abs(tilt) * 0.5 : 0}px) rotate(${tilt}deg)` }}
+          className="absolute left-4 top-8 w-32 transition-transform duration-300 origin-top"
+          style={{
+            transform: `translateY(${tilt > 0 ? tilt * 1 : 0}px) rotate(${beamDeg}deg)`,
+          }}
         >
           <div className="text-[10px] text-faint font-mono text-center mb-1">
             2x + 3
@@ -76,8 +89,10 @@ export function QL1Q1Playground() {
 
         {/* Right pan */}
         <div
-          className="absolute right-4 top-8 w-32 transition-transform duration-300"
-          style={{ transform: `translateY(${tilt < 0 ? Math.abs(tilt) * 0.5 : 0}px) rotate(${tilt}deg)` }}
+          className="absolute right-4 top-8 w-32 transition-transform duration-300 origin-top"
+          style={{
+            transform: `translateY(${tilt < 0 ? -tilt * 1 : 0}px) rotate(${beamDeg}deg)`,
+          }}
         >
           <div className="text-[10px] text-faint font-mono text-center mb-1">
             11
