@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Source_Serif_4 } from "next/font/google";
+import { DM_Sans, Lexend, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/chrome/TopNav";
 import { SideRail } from "@/components/chrome/SideRail";
 import { MobileNav } from "@/components/chrome/MobileNav";
+import { A11ySettings } from "@/components/chrome/A11ySettings";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -15,6 +16,15 @@ const sourceSerif = Source_Serif_4({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-source-serif",
+});
+
+// Lexend — used as the accessibility-friendly fallback when the user
+// toggles "Dyslexia-friendly font" in the A11y settings panel.
+const lexend = Lexend({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-lexend",
+  weight: ["400", "500", "600", "700"],
 });
 
 function safeAppUrl() {
@@ -97,7 +107,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${sourceSerif.variable}`}>
+    <html
+      lang="en"
+      className={`${dmSans.variable} ${sourceSerif.variable} ${lexend.variable}`}
+    >
       <body className="bg-canvas text-ink min-h-screen">
         <a href="#main-content" className="skip-link">
           Skip to main content
@@ -114,6 +127,7 @@ export default function RootLayout({
           </main>
         </div>
         <MobileNav />
+        <A11ySettings />
       </body>
     </html>
   );

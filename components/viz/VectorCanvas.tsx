@@ -51,6 +51,13 @@ export interface DraggablePoint {
   label?: string;
 }
 
+export interface DotProps {
+  pos: Vec2;
+  color?: string;
+  radius?: number;
+  label?: string;
+}
+
 export interface VectorCanvasProps {
   width?: number;
   height?: number;
@@ -65,6 +72,9 @@ export interface VectorCanvasProps {
   arrows?: ArrowProps[];
   polygons?: PolygonProps[];
   gridLines?: GridLine[]; // for warping the grid under a transform
+  // Non-interactive dots — useful for showing markers in the output of a
+  // transformation, sample positions, or scanned points.
+  dots?: DotProps[];
   // Mouse interaction: when set, the canvas becomes draggable; callback receives
   // the world-space coordinate of the pointer.
   onPointerMove?: (world: Vec2) => void;
@@ -243,12 +253,12 @@ function GridLine({
 }
 
 export function VectorCanvas({
-  width = 480,
-  height = 480,
+  width = 400,
+  height = 400,
   worldSize = 10,
   showGrid = true,
   showAxes = true,
-  showAxisLabels = true,
+  showAxisLabels = false,
   showOrigin = true,
   gridStep = 1,
   background = true,
@@ -256,15 +266,16 @@ export function VectorCanvas({
   arrows = [],
   polygons = [],
   gridLines = [],
-  onPointerMove,
+  dots = [],
   onPointerDown,
+  onPointerMove,
   onPointerUp,
   draggableArrows,
   onArrowDrag,
   draggablePoints,
   onPointDrag,
   clamp,
-  ariaLabel = "Interactive vector canvas",
+  ariaLabel,
   children,
 }: VectorCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -563,6 +574,35 @@ export function VectorCanvas({
         {polygons.map((p, i) => (
           <Polygon key={`poly-${i}`} {...p} size={width} worldSize={worldSize} />
         ))}
+
+        {/* Static (non-draggable) dots */}
+        {dots.map((d, i) => {
+          const px = worldToPixel(d.pos, width, worldSize);
+          const r = d.radius ?? 5;
+          return (
+            <g key={`dot-${i}`} pointerEvents="none" aria-hidden="true">
+              {d.label && (
+                <text
+                  x={px.x + r + 4}
+                  y={px.y - r - 2}
+                  fill={d.color ?? "var(--ink)"}
+                  fontSize="11"
+                  fontFamily="ui-monospace, monospace"
+                >
+                  {d.label}
+                </text>
+              )}
+              <circle
+                cx={px.x}
+                cy={px.y}
+                r={r}
+                fill={d.color ?? "var(--accent)"}
+                stroke="var(--bg)"
+                strokeWidth={1.5}
+              />
+            </g>
+          );
+        })}
 
         {/* Static arrows */}
         {arrows.map((a, i) => (

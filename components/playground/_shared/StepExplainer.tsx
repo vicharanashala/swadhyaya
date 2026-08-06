@@ -2,11 +2,18 @@
 import { useId } from "react";
 import { cn } from "@/lib/cn";
 
-// Reusable step-explainer for matrix-based playgrounds. Renders a
-// numbered list of "what's happening" steps with a live-update value
-// and a short narrative. Unlike a <table>, the narrative reads like
-// prose — the student sees the *story* of the calculation, not just a
-// row of numbers.
+// Reusable step-explainer for matrix-based playgrounds. Two layouts:
+//
+//   • "list"     — default. Compact, monospaced numbered grid. Good when
+//                  the student is scanning for a value.
+//   • "timeline" — vertical timeline with numbered circles connected by
+//                  a line. Easier to follow as a story. Used when the
+//                  explainer is the main focus of the panel (e.g. folded
+//                  into a small space as a "step by step" expander).
+//
+// Pattern lifted from vicharanashala/tenali's `solve-timeline` block
+// (App.jsx ~renderFeedback). Swadhyaya chose line+circle-with-glow over
+// solid dots so the warm theme doesn't fight a heavy block.
 //
 // Steps are objects with:
 //   - title: short noun phrase (e.g. "Form the augmented matrix")
@@ -14,6 +21,8 @@ import { cn } from "@/lib/cn";
 //   - value: live, formatter-applied string shown in the right column
 //   - tone: optional accent ("accent" | "warn" | "faint") to colour
 //           the value column when it's a key insight (e.g. det = 0)
+
+export type StepVariant = "list" | "timeline";
 
 export interface Step {
   title: string;
@@ -27,11 +36,13 @@ export function StepExplainer({
   title = "What's happening — the math behind the picture",
   className,
   compact = false,
+  variant = "timeline",
 }: {
   steps: Step[];
   title?: string;
   className?: string;
   compact?: boolean;
+  variant?: StepVariant;
 }) {
   const uid = useId();
   return (
@@ -46,54 +57,161 @@ export function StepExplainer({
           {title}
         </div>
       </div>
-      <ol className="divide-y divide-line">
-        {steps.map((s, i) => {
-          const toneClass =
-            s.tone === "accent"
-              ? "text-accent"
-              : s.tone === "warn"
-                ? "text-warn"
-                : "text-ink";
-          return (
-            <li
-              key={`${uid}-${i}`}
+      {variant === "timeline" ? (
+        <Timeline steps={steps} uid={uid} compact={compact} />
+      ) : (
+        <List steps={steps} uid={uid} compact={compact} />
+      )}
+    </div>
+  );
+}
+
+function List({
+  steps,
+  uid,
+  compact,
+}: {
+  steps: Step[];
+  uid: string;
+  compact: boolean;
+}) {
+  return (
+    <ol className="divide-y divide-line">
+      {steps.map((s, i) => (
+        <li
+          key={`${uid}-${i}`}
+          className={cn(
+            "px-4 py-3 grid gap-3",
+            compact ? "grid-cols-[20px_1fr_auto]" : "grid-cols-[24px_1fr_auto]",
+          )}
+        >
+          <div
+            className="text-[10px] font-mono text-faint pt-0.5 tabular-nums"
+            aria-hidden="true"
+          >
+            {String(i + 1).padStart(2, "0")}
+          </div>
+          <div className="min-w-0">
+            <div
               className={cn(
-                "px-4 py-3 grid gap-3",
-                compact ? "grid-cols-[20px_1fr_auto]" : "grid-cols-[24px_1fr_auto]",
+                "text-xs font-medium text-ink",
+                compact && "text-[11px]",
               )}
             >
-              <div
-                className="text-[10px] font-mono text-faint pt-0.5 tabular-nums"
+              {s.title}
+            </div>
+            <div
+              className={cn(
+                "text-[11px] text-dim leading-relaxed mt-0.5",
+                compact && "text-[10px]",
+              )}
+            >
+              {s.detail}
+            </div>
+          </div>
+          <ValuePill step={s} compact={compact} />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Timeline({
+  steps,
+  uid,
+  compact,
+}: {
+  steps: Step[];
+  uid: string;
+  compact: boolean;
+}) {
+  return (
+    <ol className="px-4 py-4 space-y-3">
+      {steps.map((s, i) => {
+        const isLast = i === steps.length - 1;
+        const toneRing =
+          s.tone === "warn"
+            ? "border-warn/60 bg-warn/10 text-warn"
+            : s.tone === "accent"
+              ? "border-accent/60 bg-accent/10 text-accent"
+              : "border-line bg-elev/50 text-ink";
+        return (
+          <li
+            key={`${uid}-${i}`}
+            className="relative flex gap-3 items-start"
+          >
+            {/* Connector line. `aria-hidden` so screen-readers don't
+                read it as a separate item. */}
+            {!isLast && (
+              <span
                 aria-hidden="true"
+                className="absolute left-[15px] top-[28px] bottom-[-12px] w-px bg-line/80"
+              />
+            )}
+            <div
+              aria-hidden="true"
+              className={cn(
+                "shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center text-[11px] font-mono tabular-nums relative z-10",
+                toneRing,
+              )}
+            >
+              {i + 1}
+            </div>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div
+                className={cn(
+                  "font-medium text-ink",
+                  compact ? "text-[11px]" : "text-xs",
+                )}
               >
-                {String(i + 1).padStart(2, "0")}
-              </div>
-              <div className="min-w-0">
-                <div className={cn("text-xs font-medium text-ink", compact && "text-[11px]")}>
-                  {s.title}
-                </div>
-                <div
-                  className={cn(
-                    "text-[11px] text-dim leading-relaxed mt-0.5",
-                    compact && "text-[10px]",
-                  )}
-                >
-                  {s.detail}
-                </div>
+                {s.title}
               </div>
               <div
                 className={cn(
-                  "font-mono text-xs whitespace-nowrap pt-0.5 self-start",
-                  toneClass,
+                  "text-dim leading-relaxed mt-0.5",
+                  compact ? "text-[10px]" : "text-[11px]",
                 )}
-                aria-label={`${s.title}: ${s.value}`}
               >
-                {s.value}
+                {s.detail}
               </div>
-            </li>
-          );
-        })}
-      </ol>
+              <ValuePill step={s} compact={compact} className="mt-1.5" />
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function ValuePill({
+  step,
+  compact,
+  className,
+}: {
+  step: Step;
+  compact: boolean;
+  className?: string;
+}) {
+  const toneClass =
+    step.tone === "accent"
+      ? "text-accent"
+      : step.tone === "warn"
+        ? "text-warn"
+        : "text-ink";
+  return (
+    <div
+      className={cn(
+        "font-mono whitespace-nowrap self-start",
+        compact ? "text-[10px]" : "text-xs",
+        toneClass,
+        // When used standalone (timeline case) it's inline-block; in the
+        // list case it's a grid column.
+        !className && "pt-0.5",
+        className,
+      )}
+      aria-label={`${step.title}: ${step.value}`}
+    >
+      {step.value}
     </div>
   );
 }

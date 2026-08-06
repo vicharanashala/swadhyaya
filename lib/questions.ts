@@ -364,7 +364,10 @@ export const QUESTIONS: Question[] = [
       { id: "a", label: "True", correct: true },
       { id: "b", label: "False" },
     ],
-    "Both conditions. Span = cover the space. Independence = no redundancy. Together = basis."),
+    "Both conditions. Span = cover the space. Independence = no redundancy. Together = basis.",
+    "Re-read the playground carefully.",
+    10,
+    "q-V7-q1"),
 
   // V8
   q("V8", "predict",
@@ -387,7 +390,10 @@ export const QUESTIONS: Question[] = [
       { id: "a", label: "True" },
       { id: "b", label: "False", correct: true },
     ],
-    "Most functions are NOT linear. Linear means preserving add and scale — most functions don't."),
+    "Most functions are NOT linear. Linear means preserving add and scale — most functions don't.",
+    "Try the preset transformations in the playground below — only some are linear.",
+    10,
+    "q-T1-q1"),
 
   // T2
   q("T2", "predict",
@@ -505,7 +511,10 @@ export const QUESTIONS: Question[] = [
       { id: "c", label: "All in Rⁿ" },
       { id: "d", label: "Rᵐ⁺ⁿ" },
     ],
-    "Col space ⊂ Rᵐ, row space ⊂ Rⁿ, null space ⊂ Rⁿ, left-null space ⊂ Rᵐ."),
+    "Col space ⊂ Rᵐ, row space ⊂ Rⁿ, null space ⊂ Rⁿ, left-null space ⊂ Rᵐ.",
+    "Pick a rank in the playground below — see which spaces live where.",
+    10,
+    "q-F1-q1"),
   q("F1", "truefalse",
     "dim(C(A)) + dim(N(A)) = n.",
     [
@@ -619,7 +628,10 @@ export const QUESTIONS: Question[] = [
       { id: "a", label: "True", correct: true },
       { id: "b", label: "False" },
     ],
-    "Yes. n independent eigenvectors → can form P → A = PDP⁻¹."),
+    "Yes. n independent eigenvectors → can form P → A = PDP⁻¹.",
+    "Try the presets in the playground below — see which are diagonalizable and why.",
+    10,
+    "q-E4-q1"),
 
   // S1
   q("S1", "predict",
@@ -670,7 +682,10 @@ export const QUESTIONS: Question[] = [
       { id: "a", label: "True", correct: true },
       { id: "b", label: "False" },
     ],
-    "Yes — the Eckart-Young theorem. The top-k singular value approximation is the best rank-k approximation in Frobenius norm."),
+    "Yes — the Eckart-Young theorem. The top-k singular value approximation is the best rank-k approximation in Frobenius norm.",
+    "Try the line-fitter playground below — drag points and see how x* = (AᵀA)⁻¹Aᵀb.",
+    10,
+    "q-S4-q1"),
 
   // S5
   q("S5", "predict",
