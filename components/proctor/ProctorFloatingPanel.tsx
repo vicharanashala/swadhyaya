@@ -127,7 +127,7 @@ export function ProctorFloatingPanel({
           onClick={() => setCollapsed(false)}
           aria-label="Expand proctor panel"
           className={cn(
-            "fixed bottom-4 right-4 z-30 w-11 h-11 rounded-full",
+            "fixed bottom-4 right-4 z-[45] w-11 h-11 rounded-full",
             "bg-card/90 border border-line backdrop-blur",
             "shadow-[0_4px_14px_rgba(0,0,0,0.35)]",
             "flex items-center justify-center text-accent hover:bg-elev hover:scale-105 transition",
@@ -148,7 +148,7 @@ export function ProctorFloatingPanel({
 
   return (
     <>
-      <div className="fixed bottom-4 right-4 z-30 w-[220px] max-w-[calc(100vw-2rem)] bg-card border border-line rounded-2xl shadow-[0_10px_28px_rgba(0,0,0,0.4)] overflow-hidden text-xs">
+      <div className="fixed bottom-4 right-4 z-[45] w-[220px] max-w-[calc(100vw-2rem)] bg-card border border-line rounded-2xl shadow-[0_10px_28px_rgba(0,0,0,0.4)] overflow-hidden text-xs">
         {/* Header */}
         <div
           style={pillStyle}
@@ -289,7 +289,7 @@ function Toasts({
 }) {
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed right-4 top-20 z-40 flex flex-col gap-2 max-w-[280px]">
+    <div className="fixed right-4 top-20 z-[55] flex flex-col gap-2 max-w-[280px]">
       {toasts.map((v) => (
         <div
           key={v.id}

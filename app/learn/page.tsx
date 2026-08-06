@@ -8,6 +8,7 @@ import {
   getUnlocked,
 } from "@/lib/curriculum";
 import { useProgress } from "@/lib/progress";
+import { ProctoringInlineStatus } from "@/components/proctor/ProctoringInlineStatus";
 import { cn } from "@/lib/cn";
 import { useMemo } from "react";
 
@@ -34,6 +35,7 @@ export default function LearnMap() {
           {CONCEPTS.length} concepts across {PHASES.length} phases. Lock in the
           intuition of one to unlock the next. No skipping. No broken chains.
         </p>
+        <ProctoringInlineStatus className="mt-3" />
         <NextUpBanner completedSet={completedSet} />
         {showDevTools && <DevUnlockAll />}
       </header>
