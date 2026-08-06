@@ -3,6 +3,12 @@ import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { fmt } from "@/lib/math";
 import { Shuffle } from "lucide-react";
+import {
+  PlaygroundExplanation,
+  ExplanationSection,
+  ExplanationTable,
+  ExplanationRow,
+} from "./PlaygroundExplanation";
 
 // Concept V2: Adding and Scaling — Linear Combinations.
 // Three things to drag:
@@ -60,11 +66,12 @@ export function LinearCombinationPlayground() {
   };
 
   return (
-    <div className="grid lg:grid-cols-[1fr_300px] gap-4">
-      <div className="bg-card border border-line rounded-xl p-4">
-        <h3 className="text-sm font-medium text-ink mb-1">
-          Drag a, b, or the result — see the linear combination update live.
-        </h3>
+    <div className="space-y-4">
+      <div className="grid lg:grid-cols-[1fr_300px] gap-4">
+        <div className="bg-card border border-line rounded-xl p-4">
+          <h3 className="text-sm font-medium text-ink mb-1">
+            Drag a, b, or the result — see the linear combination update live.
+          </h3>
         <p className="text-xs text-dim mb-3">
           A linear combination is a sum of scaled vectors. The dashed
           parallelogram shows the two scaled steps.
@@ -303,6 +310,103 @@ export function LinearCombinationPlayground() {
           </div>
         </div>
       </div>
+      </div>
+
+      <PlaygroundExplanation title="What's happening in this combination">
+        <ExplanationSection label="The recipe">
+          <ExplanationTable>
+            <tbody>
+              <ExplanationRow
+                label="c₁"
+                value={<span className="text-accent">{ca.toFixed(2)}</span>}
+                hint={`scalar on vector a`}
+              />
+              <ExplanationRow
+                label="c₂"
+                value={<span className="text-accent">{cb.toFixed(2)}</span>}
+                hint={`scalar on vector b`}
+              />
+              <ExplanationRow
+                label="result"
+                value={<span className="text-accent">c₁·a + c₂·b</span>}
+                hint={`linear combination = scaled a plus scaled b`}
+              />
+            </tbody>
+          </ExplanationTable>
+        </ExplanationSection>
+
+        <ExplanationSection label="Component-by-component">
+          <ExplanationTable>
+            <tbody>
+              <ExplanationRow
+                label="x component"
+                value={
+                  <span className="font-mono">
+                    {fmt(ca * a.x, 2)} + {fmt(cb * b.x, 2)}
+                  </span>
+                }
+                hint={`${ca.toFixed(2)} · ${a.x} + ${cb.toFixed(2)} · ${b.x}`}
+              />
+              <ExplanationRow
+                label="y component"
+                value={
+                  <span className="font-mono">
+                    {fmt(ca * a.y, 2)} + {fmt(cb * b.y, 2)}
+                  </span>
+                }
+                hint={`${ca.toFixed(2)} · ${a.y} + ${cb.toFixed(2)} · ${b.y}`}
+              />
+              <ExplanationRow
+                label="result point"
+                value={
+                  <span className="text-accent font-bold">
+                    ({fmt(sum.x, 2)}, {fmt(sum.y, 2)})
+                  </span>
+                }
+                hint="the head of the dashed parallelogram"
+              />
+            </tbody>
+          </ExplanationTable>
+        </ExplanationSection>
+
+        <ExplanationSection label="Geometry">
+          <ExplanationTable>
+            <tbody>
+              <ExplanationRow
+                label="c₁ · a"
+                value={
+                  <span>
+                    <span className="text-vector">
+                      ({fmt(ca * a.x, 2)}, {fmt(ca * a.y, 2)})
+                    </span>
+                  </span>
+                }
+                hint={`${ca.toFixed(2)}× vector a — colored coral`}
+              />
+              <ExplanationRow
+                label="c₂ · b"
+                value={
+                  <span>
+                    <span className="text-matrix">
+                      ({fmt(cb * b.x, 2)}, {fmt(cb * b.y, 2)})
+                    </span>
+                  </span>
+                }
+                hint={`${cb.toFixed(2)}× vector b — colored blue`}
+              />
+              <ExplanationRow
+                label="parallelogram area"
+                value={
+                  <span className="text-accent">
+                    {fmt(Math.abs(a.x * b.y - a.y * b.x), 2)}
+                  </span>
+                }
+                hint="|a × b| — area of the dashed parallelogram"
+              />
+            </tbody>
+          </ExplanationTable>
+        </ExplanationSection>
+      </PlaygroundExplanation>
     </div>
   );
 }

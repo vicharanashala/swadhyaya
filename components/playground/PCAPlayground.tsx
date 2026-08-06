@@ -2,6 +2,9 @@
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { m2eigen } from "@/lib/math";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph, MatrixStripHeatmap } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Deterministic seeded PRNG so the SSR/CSR HTML matches and React 19 doesn't
 // warn about hydration mismatches.
@@ -45,6 +48,7 @@ function generateDataset(
 export function PCAPlayground() {
   const [kind, setKind] = useState<"blob" | "line" | "circle">("blob");
   const [seed, setSeed] = useState(1);
+  const [showSteps, setShowSteps] = useState(false);
   const points = useMemo(() => generateDataset(kind, seed), [kind, seed]);
 
   // Compute mean and covariance, then eigen-decompose with lib/math.
@@ -78,16 +82,83 @@ export function PCAPlayground() {
     if (!e) {
       return {
         mean,
+        cov,
         pc1: { dir: [1, 0] as [number, number], variance: 0 },
         pc2: { dir: [0, 1] as [number, number], variance: 0 },
       };
     }
     return {
       mean,
+      cov,
       pc1: { dir: e.vectors[0], variance: e.values[0] },
       pc2: { dir: e.vectors[1], variance: e.values[1] },
     };
   }, [points]);
+
+  const totalVar = pca.pc1.variance + pca.pc2.variance;
+  const varianceRatio =
+    totalVar > 0 ? (pca.pc1.variance / totalVar) * 100 : 0;
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Look at the data cloud",
+        detail:
+          "Each dataset (blob, line, circle) has a different shape. " +
+          "PCA finds the axes that ALIGN with that shape — so the " +
+          "first axis captures the most variance.",
+        value: `${points.length} points`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute mean — centre the cloud",
+        detail:
+          "Subtract the mean from every point. The data is now " +
+          "centred at the origin; PCA directions pass through the " +
+          "centroid.",
+        value: `mean = (${pca.mean[0].toFixed(2)}, ${pca.mean[1].toFixed(2)})`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Build the covariance matrix",
+        detail:
+          "Cov[i][j] = average of (x_i − x̄_i)(x_j − x̄_j). For 2D " +
+          "data this is a 2×2 symmetric matrix whose diagonal is " +
+          "the variance along each axis and off-diagonal is the " +
+          "covariance.",
+        value: `cov = [[${pca.cov[0][0].toFixed(3)}, ${pca.cov[0][1].toFixed(3)}], [${pca.cov[1][0].toFixed(3)}, ${pca.cov[1][1].toFixed(3)}]]`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Eigen-decompose the covariance",
+        detail:
+          "The eigenvectors point along the natural axes of the data. " +
+          "The eigenvalues are the variances along those axes.",
+        value: `PC1 = (${pca.pc1.dir[0].toFixed(2)}, ${pca.pc1.dir[1].toFixed(2)}), PC2 = (${pca.pc2.dir[0].toFixed(2)}, ${pca.pc2.dir[1].toFixed(2)})`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Read the variance ratio",
+        detail:
+          "How much of the total variance is captured by PC1? Higher " +
+          "% means PC1 is the dominant direction — most of the data " +
+          "spread is along that one axis.",
+        value: `PC1 explains ${varianceRatio.toFixed(1)}%`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Why this matters — dimensionality reduction",
+        detail:
+          "If PC1 explains 95% of the variance, you can drop PC2 and " +
+          "keep 95% of the data&apos;s structure in just one " +
+          "dimension. That&apos;s the core trick of PCA-based " +
+          "compression.",
+        value: "compress to 1D, lose 5%",
+        tone: "faint" as const,
+      },
+    ],
+    [points, pca, varianceRatio],
+  );
 
   return (
     <div className="bg-card border border-line rounded-xl p-4">
@@ -207,13 +278,80 @@ export function PCAPlayground() {
           </div>
           <div className="bg-elev/30 border border-line rounded p-3 text-xs text-dim">
             <span className="text-ink">Variance ratio:</span>{" "}
-            {(
-              (pca.pc1.variance / (pca.pc1.variance + pca.pc2.variance)) *
-              100
-            ).toFixed(1)}
+            {varianceRatio.toFixed(1)}
             % explained by PC1
           </div>
         </div>
+      </div>
+
+      {/* Graphs: covariance matrix heatmap + variance bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Covariance matrix — symmetric, positive semi-definite
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The diagonal entries are the per-axis variances. The " +
+            "off-diagonals are the covariances — large values mean " +
+            "the data is correlated.
+          </p>
+          <MatrixStripHeatmap
+            matrix={pca.cov ?? [[0, 0], [0, 0]]}
+            maxAbs={Math.max(2, ...(pca.cov ?? [[0, 0], [0, 0]]).flat().map((v: number) => Math.abs(v) || 0))}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Variances along PC1 and PC2
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            PC1 always has the larger variance — that&apos;s the whole " +
+            "point. PC2 is perpendicular to PC1.
+          </p>
+          <BarsGraph
+            values={[pca.pc1.variance, pca.pc2.variance]}
+            labels={["PC1", "PC2"]}
+            maxAbs={Math.max(
+              pca.pc1.variance + 0.5,
+              pca.pc2.variance + 0.5,
+              1,
+            )}
+            highlights={[0]}
+            width={undefined}
+            height={120}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -4,7 +4,9 @@ import { VectorCanvas, type Vec2 as V } from "@/components/viz/VectorCanvas";
 import { Slider } from "./Slider";
 import { m2, m2mul, m2mulVec, m2det, fmt } from "@/lib/math";
 import type { Mat2 } from "@/lib/math";
-import { Lightbulb, RotateCcw } from "lucide-react";
+import { Lightbulb, RotateCcw, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph, MatrixStripHeatmap } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 interface Props {
   initial?: Mat2;
@@ -23,10 +25,65 @@ export function MatrixColumnsPlayground({ initial }: Props) {
   });
   const [testVec, setTestVec] = useState<V>({ x: 1, y: 1 });
   const [showGrid, setShowGrid] = useState(true);
+  const [showSteps, setShowSteps] = useState(false);
 
   const A: Mat2 = useMemo(() => [[col1.x, col2.x], [col1.y, col2.y]], [col1, col2]);
   const det = useMemo(() => m2det(A), [A]);
   const result = useMemo(() => m2mulVec(A, [testVec.x, testVec.y]), [A, testVec]);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read the two column-arrows",
+        detail:
+          "Drag the two colored arrows. Each arrow IS a column of " +
+          "the matrix. Column 1 = where î lands; column 2 = where ĵ " +
+          "lands. The full linear transformation is determined by " +
+          "these two destinations alone.",
+        value: `col 1 = (${fmt(col1.x, 2)}, ${fmt(col1.y, 2)})`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Read the matrix",
+        detail:
+          "A = [col1 | col2]. The matrix entries ARE the column " +
+          "coordinates — no other representation needed. This is why " +
+          "the matrix is so compact: two columns of numbers encode " +
+          "the whole transformation.",
+        value: `A = [[${fmt(A[0]![0], 2)}, ${fmt(A[0]![1], 2)}], [${fmt(A[1]![0], 2)}, ${fmt(A[1]![1], 2)}]]`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Compute det(A) — the area of the parallelogram",
+        detail:
+          "det = col1.x · col2.y − col1.y · col2.x. It's the SIGNED " +
+          "area of the parallelogram the two columns span. Positive " +
+          "if the columns are counterclockwise; negative if clockwise; " +
+          "zero if they're collinear.",
+        value: `det = ${fmt(det, 3)}`,
+        tone: Math.abs(det) < 0.1 ? ("warn" as const) : ("accent" as const),
+      },
+      {
+        title: "Apply A to the test vector v",
+        detail:
+          "v = (v₁, v₂). Result: v₁·col1 + v₂·col2 — a linear " +
+          "combination of the columns. The weight v₁ determines how " +
+          "much of col1 to add; v₂ does the same for col2.",
+        value: `Av = (${fmt(result[0], 2)}, ${fmt(result[1], 2)})`,
+        tone: "accent" as const,
+      },
+      {
+        title: "The whole world warps accordingly",
+        detail:
+          "Apply A to EVERY point in the plane. The unit grid becomes " +
+          "a parallelogram grid; circles become ellipses; the area " +
+          "of any region scales by |det|.",
+        value: `area scales by ${Math.abs(det).toFixed(2)}×`,
+        tone: "faint" as const,
+      },
+    ],
+    [col1, col2, A, det, result],
+  );
 
   // Build the warped grid: take each grid point, apply A
   const warpedGrid = useMemo(() => {
@@ -46,8 +103,9 @@ export function MatrixColumnsPlayground({ initial }: Props) {
   }, [A]);
 
   return (
-    <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-      <div className="bg-card border border-line rounded-xl p-4">
+    <div className="space-y-4">
+      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
+        <div className="bg-card border border-line rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-ink">
             Drag the two arrows — watch the whole world warp
@@ -103,7 +161,7 @@ export function MatrixColumnsPlayground({ initial }: Props) {
             Show warped grid
           </label>
         </div>
-      </div>
+        </div>
 
       <div className="space-y-3">
         <div className="bg-card border border-line rounded-xl p-4">
@@ -165,6 +223,75 @@ export function MatrixColumnsPlayground({ initial }: Props) {
           Try setting both arrows perpendicular. Notice det grows. Try making them
           parallel — det goes to zero.
         </Hint>
+      </div>
+      </div>
+
+      {/* Graphs: matrix heatmap + column magnitude bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Matrix A — sign and magnitude
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each column is highlighted with a different color, matching " +
+            "the arrows on the canvas. Drag the arrows and watch the " +
+            "heatmap shift in sync.
+          </p>
+          <MatrixStripHeatmap
+            matrix={[A[0] ? [...A[0]] : [], A[1] ? [...A[1]] : []]}
+            highlightCols={[0, 1]}
+            maxAbs={Math.max(4, Math.abs(col1.x), Math.abs(col1.y), Math.abs(col2.x), Math.abs(col2.y))}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Column magnitudes + det — feel the area
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            ||col1|| and ||col2|| are the column lengths. The det bar " +
+            "(orange) is the SIGNED parallelogram area — zero when " +
+            "columns are collinear.
+          </p>
+          <BarsGraph
+            values={[Math.hypot(col1.x, col1.y), Math.hypot(col2.x, col2.y), det]}
+            labels={["||col1||", "||col2||", "det"]}
+            maxAbs={Math.max(6, Math.abs(det) + 1)}
+            highlights={[2]}
+            width={undefined}
+            height={140}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,12 @@ import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { m2mulVec, fmt } from "@/lib/math";
 import { Sparkles, RotateCcw } from "lucide-react";
+import {
+  TeX,
+  MatrixHeatmap,
+  BasisTransform,
+  ValueBar,
+} from "@/components/viz/VisualPrimitives";
 
 // Concept L4: The Matrix Form — Ax = b
 // "The moment matrices enter. Coefficients, unknowns, answers — three blocks."
@@ -86,55 +92,96 @@ export function MatrixTimesVectorPlayground() {
       </p>
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-        <div className="bg-canvas border border-line rounded p-2">
-          <VectorCanvas
-            width={520}
-            height={520}
-            worldSize={6}
-            arrows={[
-              {
-                to: { x, y },
-                color: "var(--ink)",
-                label: "x",
-                width: 2.5,
-                labelOffset: { x: 0.3, y: 0.3 },
-              },
-              {
-                to: { x: out[0] ?? 0, y: out[1] ?? 0 },
-                color: "var(--accent)",
-                label: `Ax = (${fmt(out[0] ?? 0, 2)}, ${fmt(out[1] ?? 0, 2)})`,
-                width: 3,
-                labelOffset: { x: 0.3, y: -0.3 },
-              },
-            ]}
-            draggablePoints={[
-              { id: "x", pos: { x, y }, color: "var(--ink)", label: "x", radius: 8 },
-            ]}
-            onPointDrag={(id, p) => {
-              if (id === "x") {
-                setX(Math.round(p.x * 10) / 10);
-                setY(Math.round(p.y * 10) / 10);
-              }
-            }}
-            clamp={{ min: { x: -5.5, y: -5.5 }, max: { x: 5.5, y: 5.5 } }}
-            ariaLabel="A times x visualization"
-          />
+        <div className="space-y-3">
+          <div className="bg-canvas border border-line rounded p-2">
+            <div className="text-[10px] text-faint uppercase tracking-wider mb-1">
+              Input / output view
+            </div>
+            <VectorCanvas
+              width={520}
+              height={400}
+              worldSize={6}
+              arrows={[
+                {
+                  to: { x, y },
+                  color: "var(--ink)",
+                  label: "x",
+                  width: 2.5,
+                  labelOffset: { x: 0.3, y: 0.3 },
+                },
+                {
+                  to: { x: out[0] ?? 0, y: out[1] ?? 0 },
+                  color: "var(--accent)",
+                  label: `Ax = (${fmt(out[0] ?? 0, 2)}, ${fmt(out[1] ?? 0, 2)})`,
+                  width: 3,
+                  labelOffset: { x: 0.3, y: -0.3 },
+                },
+              ]}
+              draggablePoints={[
+                { id: "x", pos: { x, y }, color: "var(--ink)", label: "x", radius: 8 },
+              ]}
+              onPointDrag={(id, p) => {
+                if (id === "x") {
+                  setX(Math.round(p.x * 10) / 10);
+                  setY(Math.round(p.y * 10) / 10);
+                }
+              }}
+              clamp={{ min: { x: -5.5, y: -5.5 }, max: { x: 5.5, y: 5.5 } }}
+              ariaLabel="A times x visualization"
+            />
+          </div>
+          <div className="bg-canvas border border-line rounded p-2 flex items-center gap-3">
+            <div>
+              <div className="text-[10px] text-faint uppercase tracking-wider mb-1">
+                Basis-vector transform
+              </div>
+              <BasisTransform matrix={M} width={360} height={280} />
+            </div>
+            <div className="flex-1 text-xs text-dim leading-relaxed space-y-2">
+              <p>
+                Watch where{" "}
+                <span className="text-[#e8864a] font-mono">î</span> and{" "}
+                <span className="text-[#6db3ff] font-mono">ĵ</span> go as the
+                matrix changes. The fading dots show the{" "}
+                <em>trail</em> from the original basis to the transformed
+                one — a vector moving through space.
+              </p>
+              <p>
+                The transformed basis is the matrix's{" "}
+                <strong className="text-ink">fingerprint</strong>: every
+                other vector follows from these two.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3">
           <div className="bg-elev/30 border border-line rounded p-3">
             <div className="text-[10px] text-faint uppercase tracking-wider mb-2">
-              Matrix A
+              Matrix A — color = magnitude
             </div>
-            <div className="grid grid-cols-2 gap-2 items-center mb-2">
+            <MatrixHeatmap matrix={M} max={3} className="mx-auto" />
+            <div className="grid grid-cols-2 gap-2 items-center mt-3 mb-2">
               <NumInput value={a} onChange={setA} />
               <NumInput value={b} onChange={setB} />
               <NumInput value={c} onChange={setC} />
               <NumInput value={d} onChange={setD} />
             </div>
-            <div className="font-mono text-sm text-ink text-center">
-              [{fmt(a, 2)} {fmt(b, 2)}]<br />
-              [{fmt(c, 2)} {fmt(d, 2)}]
+            <div className="text-[10px] text-dim text-center mt-1">
+              warm = positive · cool = negative · faded = near zero
+            </div>
+          </div>
+
+          <div className="bg-elev/30 border border-line rounded p-3">
+            <div className="text-[10px] text-faint uppercase tracking-wider mb-2">
+              Vector x
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <NumInput value={x} onChange={setX} />
+              <NumInput value={y} onChange={setY} />
+            </div>
+            <div className="text-[10px] text-dim mt-2">
+              <TeX math={`\\begin{pmatrix} ${fmt(a,2)} & ${fmt(b,2)} \\\\ ${fmt(c,2)} & ${fmt(d,2)} \\end{pmatrix} \\begin{pmatrix} ${fmt(x,2)} \\\\ ${fmt(y,2)} \\end{pmatrix} = \\begin{pmatrix} ${fmt(out[0] ?? 0, 3)} \\\\ ${fmt(out[1] ?? 0, 3)} \\end{pmatrix}`} />
             </div>
           </div>
 
@@ -158,12 +205,14 @@ export function MatrixTimesVectorPlayground() {
             <div className="font-mono text-xl text-accent">
               ({fmt(out[0] ?? 0, 3)}, {fmt(out[1] ?? 0, 3)})
             </div>
-            <div className="text-[10px] text-dim mt-1">
-              row 1 · dot: {fmt(a, 2)}·{fmt(x, 2)} + {fmt(b, 2)}·{fmt(y, 2)} ={" "}
-              {fmt(out[0] ?? 0, 2)}
+            <div className="text-[10px] text-dim mt-2 space-y-1">
+              <ValueBar value={out[0] ?? 0} min={-6} max={6} label="row 1" />
+              <ValueBar value={out[1] ?? 0} min={-6} max={6} label="row 2" />
+            </div>
+            <div className="text-[10px] text-dim mt-2 leading-relaxed">
+              <TeX math={`${fmt(a,2)}\\cdot${fmt(x,2)} + ${fmt(b,2)}\\cdot${fmt(y,2)} = ${fmt(out[0] ?? 0, 2)}`} />
               <br />
-              row 2 · dot: {fmt(c, 2)}·{fmt(x, 2)} + {fmt(d, 2)}·{fmt(y, 2)} ={" "}
-              {fmt(out[1] ?? 0, 2)}
+              <TeX math={`${fmt(c,2)}\\cdot${fmt(x,2)} + ${fmt(d,2)}\\cdot${fmt(y,2)} = ${fmt(out[1] ?? 0, 2)}`} />
             </div>
           </div>
 

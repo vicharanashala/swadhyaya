@@ -3,6 +3,11 @@ import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { matRref, fmt } from "@/lib/math";
 import { Slider } from "./Slider";
+import {
+  TeX,
+  MatrixHeatmap,
+  ValueBar,
+} from "@/components/viz/VisualPrimitives";
 
 // Concept F1: The Four Fundamental Subspaces
 // "For an m×n matrix A: C(A)⊥N(Aᵀ), R(A)⊥N(A). Two pairs of orthogonal subspaces."
@@ -15,25 +20,14 @@ export function FourSubspacesPlayground() {
   const [e, setE] = useState(1);
   const [f, setF] = useState(1);
 
-  // A is 2x3 (m=2, n=3)
-  // Col space ⊂ R^2, Row space = Col(A^T) ⊂ R^3
-  // Null space ⊂ R^3 (3D), Left null space ⊂ R^2 (2D)
+  const A = [[a, b, e], [c, d, f]];
 
-  // Compute basis for each
   const subspaces = useMemo(() => {
-    // A^T = [[a, c, e], [b, d, f]]  (3x2)
-    // R(A) = column space of A^T
-    // N(A) = null space of A (3x3 -> 3D)
-    // C(A) = column space of A (2D) — 2 columns
-    // N(A^T) = null space of A^T (2x2 -> 2D)
-
     const col1 = { x: a, y: c };
     const col2 = { x: b, y: d };
     const col3 = { x: e, y: f };
-    // Row space basis = col space of A^T
     const row1 = { x: a, y: b, z: e };
     const row2 = { x: c, y: d, z: f };
-    // C(A) rank
     const det = a * d - b * c;
     const det2 = a * f - b * e;
     const det3 = c * f - d * e;
@@ -45,9 +39,7 @@ export function FourSubspacesPlayground() {
     };
   }, [a, b, c, d, e, f]);
 
-  // Determine N(A) basis by row reducing A
   const nullBasis = useMemo(() => {
-    const A = [[a, b, e], [c, d, f]];
     const { rref, pivots } = matRref(A);
     const n = 3;
     const free: number[] = [];
@@ -64,13 +56,8 @@ export function FourSubspacesPlayground() {
     return basis;
   }, [a, b, c, d, e, f]);
 
-  // Visual scaling — make things visible in 2D
-  const SCALE = 1;
-
-  // Build the "C(A) plane" — 2D plane, render as parallelogram
   const colPlane = useMemo(() => {
     if (subspaces.rankA >= 2) {
-      // Full plane — show the unit square in col space
       return [
         { x: 0, y: 0 },
         { x: 5, y: 0 },
@@ -78,28 +65,17 @@ export function FourSubspacesPlayground() {
         { x: 0, y: 5 },
       ];
     }
-    // Line: col1 (or col2 if col1 is zero)
-    const v = (Math.abs(subspaces.col1.x) + Math.abs(subspaces.col1.y)) > 0.01 ? subspaces.col1 : subspaces.col2;
     return null;
   }, [subspaces]);
 
-  // N(A^T) — left null space of A in 2D
   const leftNullVec = useMemo(() => {
-    // A^T is 3x2, so N(A^T) is 2D... unless rank is 2, then N(A^T) is trivial
-    // rank(A) = rank(A^T)
     if (subspaces.rankA === 2) return null;
-    // For rank 1: the row space is 1D, so N(A^T) is 1D
-    // Find the vector perpendicular to the columns in 2D
     const c1 = subspaces.col1;
     const c2 = subspaces.col2;
-    // Perpendicular to both
-    // In 2D, perpendicular is rotation by 90°
-    // Take perpendicular of (c1 if non-zero else c2)
     const v = (Math.abs(c1.x) + Math.abs(c1.y)) > 0.01 ? c1 : c2;
     return { x: -v.y, y: v.x };
   }, [subspaces]);
 
-  // Project N(A) to 2D for visualization (project onto the first 2 components)
   const nullVec2D = nullBasis[0] ? { x: nullBasis[0][0], y: nullBasis[0][1] } : null;
 
   return (
@@ -145,8 +121,9 @@ export function FourSubspacesPlayground() {
 
         <div className="space-y-3">
           <div className="bg-card border border-line rounded-xl p-3">
-            <div className="text-[10px] text-faint uppercase tracking-wider mb-2">A (2×3)</div>
-            <div className="font-mono text-sm grid grid-cols-3 gap-1">
+            <div className="text-[10px] text-faint uppercase tracking-wider mb-2">A — color = magnitude</div>
+            <MatrixHeatmap matrix={A} max={6} />
+            <div className="font-mono text-sm grid grid-cols-3 gap-1 mt-3">
               {[0, 1].map(i => (
                 <div key={i} className="contents">
                   <input type="number" step={0.1} value={[a, c][i]} onChange={(e) => {
@@ -174,14 +151,24 @@ export function FourSubspacesPlayground() {
             </div>
           </div>
 
-          <div className="bg-elev/40 border border-line rounded-xl p-3 text-xs text-dim space-y-1">
-            <div>rank(A) = <span className="text-accent font-mono">{subspaces.rankA}</span></div>
-            <div>dim C(A) = <span className="text-matrix font-mono">{subspaces.rankA}</span></div>
-            <div>dim R(A) = <span className="text-eigen font-mono">{subspaces.rankA}</span></div>
-            <div>dim N(A) = <span className="text-warn font-mono">{3 - subspaces.rankA}</span></div>
-            <div>dim N(Aᵀ) = <span className="text-warn font-mono">{2 - subspaces.rankA}</span></div>
+          <div className="bg-elev/40 border border-line rounded-xl p-3 text-xs space-y-2">
+            <div className="text-[10px] text-faint uppercase tracking-wider">
+              Fundamental theorem
+            </div>
+            <div className="leading-relaxed">
+              <TeX math={`\\dim(C(A)) + \\dim(N(A)) = n = 3`} />
+            </div>
+            <div className="leading-relaxed">
+              <TeX math={`\\dim(C(A^T)) + \\dim(N(A^T)) = m = 2`} />
+            </div>
+            <div className="space-y-1.5 mt-2">
+              <ValueBar value={subspaces.rankA} min={0} max={2} color="var(--matrix)" label="dim C(A)" />
+              <ValueBar value={subspaces.rankA} min={0} max={2} color="var(--eigen)" label="dim R(A)" />
+              <ValueBar value={3 - subspaces.rankA} min={0} max={3} color="var(--warn)" label="dim N(A)" />
+              <ValueBar value={2 - subspaces.rankA} min={0} max={2} color="var(--warn)" label="dim N(Aᵀ)" />
+            </div>
             {subspaces.rankA < 2 && (
-              <div className="text-accent mt-2 pt-2 border-t border-line/40">
+              <div className="text-accent mt-2 pt-2 border-t border-line/40 leading-relaxed">
                 C(A) and N(Aᵀ) are perpendicular ({subspaces.rankA === 1 ? "a line ⊥ a line" : "a point ⊥ a plane"}).
               </div>
             )}

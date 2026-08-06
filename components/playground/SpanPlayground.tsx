@@ -2,14 +2,17 @@
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { Slider } from "./Slider";
+import {
+  SpanParallelogram,
+  TeX,
+  ValueBar,
+} from "@/components/viz/VisualPrimitives";
 
 export function SpanPlayground() {
   const [v1, setV1] = useState({ x: 2, y: 1 });
   const [v2, setV2] = useState({ x: -1, y: 2 });
-  // parallel check
   const cross = v1.x * v2.y - v1.y * v2.x;
   const isParallel = Math.abs(cross) < 0.01;
-  // sample span dots
   const dots = useMemo(() => {
     const out: Array<{ x: number; y: number; alpha: number }> = [];
     for (let i = -8; i <= 8; i++) {
@@ -25,33 +28,49 @@ export function SpanPlayground() {
     return out;
   }, [v1, v2]);
 
+  const area = Math.abs(cross);
+
   return (
     <div className="grid lg:grid-cols-[1fr_300px] gap-4">
-      <div className="bg-card border border-line rounded-xl p-4">
-        <h3 className="text-sm font-medium text-ink mb-2">
-          The span of two arrows — all the dots you can reach
-        </h3>
-        <VectorCanvas
-          width={520}
-          height={520}
-          worldSize={8}
-          arrows={[
-            { from: { x: 0, y: 0 }, to: v1, color: "var(--vector)", label: "v₁", width: 3, labelOffset: { x: 0, y: -0.4 } },
-            { from: { x: 0, y: 0 }, to: v2, color: "var(--matrix)", label: "v₂", width: 3, labelOffset: { x: 0, y: 0.4 } },
-          ]}
-        >
-          {dots.map((d, i) => (
-            <circle
-              key={i}
-              cx={520 / 2 + d.x * (520 / 16)}
-              cy={520 / 2 - d.y * (520 / 16)}
-              r={2}
-              fill={isParallel ? "var(--warn)" : "var(--transform)"}
-              opacity={0.6}
-            />
-          ))}
-        </VectorCanvas>
+      <div className="space-y-3">
+        <div className="bg-card border border-line rounded-xl p-4">
+          <h3 className="text-sm font-medium text-ink mb-2">
+            The span of two arrows — all the dots you can reach
+          </h3>
+          <div className="bg-canvas border border-line rounded p-2">
+            <VectorCanvas
+              width={520}
+              height={420}
+              worldSize={8}
+              arrows={[
+                { from: { x: 0, y: 0 }, to: v1, color: "var(--vector)", label: "v₁", width: 3, labelOffset: { x: 0, y: -0.4 } },
+                { from: { x: 0, y: 0 }, to: v2, color: "var(--matrix)", label: "v₂", width: 3, labelOffset: { x: 0, y: 0.4 } },
+              ]}
+            >
+              {dots.map((d, i) => (
+                <circle
+                  key={i}
+                  cx={520 / 2 + d.x * (520 / 16)}
+                  cy={420 / 2 - d.y * (420 / 16)}
+                  r={2.5}
+                  fill={isParallel ? "var(--warn)" : "var(--transform)"}
+                  opacity={0.65}
+                />
+              ))}
+            </VectorCanvas>
+          </div>
+        </div>
+
+        <div className="bg-card border border-line rounded-xl p-4">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2">
+            The parallelogram v₁, v₂, v₁+v₂
+          </div>
+          <div className="bg-canvas border border-line rounded p-2">
+            <SpanParallelogram u={v1} v={v2} width={520} height={300} />
+          </div>
+        </div>
       </div>
+
       <div className="space-y-3">
         <div className="bg-card border border-line rounded-xl p-4">
           <div className="text-[10px] text-faint uppercase tracking-wider mb-2" style={{ color: "var(--vector)" }}>v₁</div>
@@ -67,6 +86,16 @@ export function SpanPlayground() {
           {isParallel
             ? "The two arrows are parallel — span is just a line."
             : "Two non-parallel arrows — span covers the entire plane."}
+        </div>
+        <div className="bg-elev/40 border border-line rounded p-3 space-y-2">
+          <div className="text-[10px] text-faint uppercase tracking-wider">
+            Math
+          </div>
+          <div className="text-xs">
+            <TeX math={`\\text{span}(v_1, v_2) = \\{ a\\,v_1 + b\\,v_2 : a, b \\in \\mathbb{R} \\}`} />
+          </div>
+          <div className="text-[10px] text-dim">area = |v₁ × v₂| = |{v1.x}·{v2.y} − {v1.y}·{v2.x}| = <span className="text-accent font-bold">{area.toFixed(2)}</span></div>
+          <ValueBar value={area} min={0} max={5} color="var(--accent)" label="area" />
         </div>
       </div>
     </div>

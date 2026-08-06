@@ -94,7 +94,30 @@ export function QuestionCard({
       const j = Math.floor(rand() * (i + 1));
       [opts[i], opts[j]] = [opts[j], opts[i]];
     }
-    return opts;
+
+    // Length-balancing pass: cap any option whose label is much longer
+    // than the others so the correct answer can't be guessed by
+    // 'longest = right'. The cap is anchored to the SECOND-LONGEST
+    // option (not the median) so even an outlier correct answer gets
+    // normalised. The full label is preserved on the original object
+    // so the post-submit UI can still show the complete text.
+    const sortedLen = opts
+      .map((o) => o.label.length)
+      .sort((a, b) => a - b);
+    const secondLongest = sortedLen[sortedLen.length - 2] ?? 0;
+    // Allow a small +20% over the second-longest so we don't churn
+    // every option; only flag truly outlying labels.
+    const maxAllowed = Math.max(Math.ceil(secondLongest * 1.2), 25);
+
+    return opts.map((o) => {
+      if (o.label.length <= maxAllowed) return o;
+      let trimmed = o.label.slice(0, maxAllowed - 1);
+      const lastSpace = trimmed.lastIndexOf(" ");
+      if (lastSpace > maxAllowed * 0.6) {
+        trimmed = trimmed.slice(0, lastSpace);
+      }
+      return { ...o, label: trimmed.trim() + "…" };
+    });
   }, [q.id, q.options]);
 
   return (
@@ -176,6 +199,7 @@ export function QuestionCard({
           return (
             <label
               key={o.id}
+              title={o.label.endsWith("…") ? o.label : undefined}
               className={cn(
                 "w-full min-h-[3.25rem] text-left px-3 py-2.5 rounded-lg border transition flex items-center cursor-pointer",
                 cls,

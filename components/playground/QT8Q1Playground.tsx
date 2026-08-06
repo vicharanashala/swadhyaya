@@ -1,9 +1,11 @@
 "use client";
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
-import { fmt } from "@/lib/math";
+import { fmt, m2inv } from "@/lib/math";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, AlertTriangle } from "lucide-react";
+import { Sparkles, AlertTriangle, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph, MatrixStripHeatmap } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Question T8-q1: "If A = [[1, 2], [2, 4]], what is A⁻¹?"
 // Library: framer-motion (animated determinant bar) + drag-on-canvas.
@@ -14,6 +16,7 @@ import { Sparkles, AlertTriangle } from "lucide-react";
 export function QT8Q1Playground() {
   const [iHat, setIHat] = useState({ x: 1, y: 2 });
   const [jHat, setJHat] = useState({ x: 2, y: 4 });
+  const [showSteps, setShowSteps] = useState(false);
 
   const det = useMemo(() => iHat.x * jHat.y - iHat.y * jHat.x, [iHat, jHat]);
   const isInvertible = Math.abs(det) > 1e-6;
@@ -22,6 +25,68 @@ export function QT8Q1Playground() {
   const meterPct = Math.min(100, Math.max(0, ((detMag + 2) / 4) * 100)); // -2..+2 -> 0..100
 
   const isCriticalRange = Math.abs(det) < 0.5;
+
+  // Pre-compute the inverse matrix (when it exists).
+  const Ainv = useMemo(() => {
+    if (!isInvertible) return null;
+    return m2inv([[iHat.x, jHat.x], [iHat.y, jHat.y]] as const);
+  }, [iHat, jHat, isInvertible]);
+
+  // A · A⁻¹ for visual sanity check that the result is identity.
+  const checkProduct = useMemo(() => {
+    if (!Ainv) return null;
+    const a = [[iHat.x, jHat.x], [iHat.y, jHat.y]];
+    return [
+      [a[0]![0]! * Ainv[0]![0]! + a[0]![1]! * Ainv[1]![0]!, a[0]![0]! * Ainv[0]![1]! + a[0]![1]! * Ainv[1]![1]!],
+      [a[1]![0]! * Ainv[0]![0]! + a[1]![1]! * Ainv[1]![0]!, a[1]![0]! * Ainv[0]![1]! + a[1]![1]! * Ainv[1]![1]!],
+    ];
+  }, [iHat, jHat, Ainv]);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read A — its two columns are î and ĵ destinations",
+        detail:
+          "Drag î and ĵ. Where they land becomes the matrix columns. " +
+          "Same as T3-q1, but here the focus is on whether A⁻¹ exists.",
+        value: `A = [[${fmt(iHat.x, 2)}, ${fmt(jHat.x, 2)}], [${fmt(iHat.y, 2)}, ${fmt(jHat.y, 2)}]]`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute det(A)",
+        detail:
+          "det(A) = col1.x · col2.y − col1.y · col2.x. It's the SIGNED " +
+          "area of the parallelogram î and ĵ span. Non-zero ⟹ " +
+          "A⁻¹ exists. Zero ⟹ î and ĵ are collinear, A collapses a " +
+          "dimension, and A⁻¹ doesn't exist.",
+        value: `det(A) = ${fmt(det, 3)}`,
+        tone: isInvertible ? ("accent" as const) : ("warn" as const),
+      },
+      {
+        title: "Apply the inverse formula",
+        detail:
+          "For a 2×2 matrix [[a, b], [c, d]], A⁻¹ = 1/(ad − bc) · " +
+          "[[d, −b], [−c, a]] — swap the diagonal, flip the off-diagonal " +
+          "signs, and divide by det.",
+        value: Ainv
+          ? `A⁻¹ = (1/${fmt(det, 2)}) · [[${fmt(Ainv[0]![0], 2)}, ${fmt(Ainv[0]![1], 2)}], [${fmt(Ainv[1]![0], 2)}, ${fmt(Ainv[1]![1], 2)}]]`
+          : "det = 0 — A⁻¹ doesn't exist",
+        tone: Ainv ? ("accent" as const) : ("warn" as const),
+      },
+      {
+        title: "Sanity check — A · A⁻¹ = I",
+        detail:
+          "Multiplying A by its inverse must give the identity. " +
+          "The bars graph shows every cell of A · A⁻¹ — they should " +
+          "all be 1 on the diagonal and 0 off it.",
+        value: checkProduct
+          ? `[[${fmt(checkProduct[0]![0], 2)}, ${fmt(checkProduct[0]![1], 2)}], [${fmt(checkProduct[1]![0], 2)}, ${fmt(checkProduct[1]![1], 2)}]]`
+          : "—",
+        tone: "accent" as const,
+      },
+    ],
+    [iHat, jHat, det, Ainv, checkProduct, isInvertible],
+  );
 
   return (
     <div className="bg-elev/40 border border-line rounded-xl p-4">
@@ -225,6 +290,95 @@ export function QT8Q1Playground() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Graphs: A and A⁻¹ as heatmaps + A·A⁻¹ as bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            A and A⁻¹ side by side
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            {isInvertible
+              ? "Notice A⁻¹ undoes A. Their columns are different — that's the whole point of the inverse."
+              : "A is singular — A⁻¹ doesn't exist. The columns of A are collinear, so there's no way to undo the collapse."}
+          </p>
+          <div className="grid grid-cols-2 gap-2 items-start">
+            <div>
+              <div className="text-[10px] text-faint font-mono mb-1">A</div>
+              <MatrixStripHeatmap
+                matrix={[[iHat.x, jHat.x], [iHat.y, jHat.y]]}
+                maxAbs={Math.max(4, Math.abs(iHat.x), Math.abs(jHat.x), Math.abs(iHat.y), Math.abs(jHat.y))}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] text-faint font-mono mb-1">A⁻¹</div>
+              {Ainv ? (
+                <MatrixStripHeatmap
+                  matrix={[Array.from(Ainv[0]!), Array.from(Ainv[1]!)]}
+                  maxAbs={Math.max(4, ...Ainv.flat().map((v) => Math.abs(v)))}
+                  className="w-full"
+                />
+              ) : (
+                <div className="text-[10px] text-warn font-mono italic">
+                  undefined — det = 0
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            A · A⁻¹ — sanity check
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each cell of A · A⁻¹ should be 1 on the diagonal and 0 " +
+            "off-diagonal — that&apos;s the identity matrix, proof that " +
+            "A⁻¹ correctly undoes A.
+          </p>
+          {checkProduct ? (
+            <BarsGraph
+              values={checkProduct.flat()}
+              labels={["AA⁻¹[1,1]", "AA⁻¹[1,2]", "AA⁻¹[2,1]", "AA⁻¹[2,2]"]}
+              maxAbs={1.5}
+              width={undefined}
+              height={120}
+              className="w-full"
+            />
+          ) : (
+            <div className="text-[10px] text-dim italic">A⁻¹ undefined</div>
+          )}
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

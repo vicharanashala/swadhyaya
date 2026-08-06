@@ -4,7 +4,16 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import { matRref, fmt } from "@/lib/math";
 import { motion } from "framer-motion";
-import { Sparkles, Shuffle } from "lucide-react";
+import { Sparkles, Shuffle, Info, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  PlaneStripesGraph,
+  BarsGraph,
+  MatrixStripHeatmap,
+} from "./_shared/MatrixGraph";
+import {
+  StepExplainer,
+  buildSystemSolveSteps,
+} from "./_shared/StepExplainer";
 
 // Question L3-q1: "Three equations in three unknowns usually have…"
 // Library: KaTeX (math formula display) + framer-motion (smooth transitions)
@@ -15,6 +24,10 @@ import { Sparkles, Shuffle } from "lucide-react";
 //   * an animated "determinant meter" tells them when the system is
 //     singular (determinant ≈ 0), so they can FEEL when there are
 //     zero or infinite solutions.
+//   * a 2D plane-stripes graph shows the orientations of the three
+//     planes (so the student can SEE why the planes meet or don't)
+//   * a "What's happening" panel walks through the solve step-by-step
+//     in prose, not a table.
 
 // Inline KaTeX formula, rendered to HTML. Returns null for invalid input.
 function TeX({ math, color }: { math: string; color?: string }) {
@@ -92,6 +105,8 @@ export function QL3Q1Playground() {
   ]);
   const [rhs, setRhs] = useState<[number, number, number]>([2, 1, 3]);
 
+  const [showSteps, setShowSteps] = useState(false);
+
   const updateEq = (
     i: 0 | 1 | 2,
     key: keyof EqState,
@@ -122,7 +137,7 @@ export function QL3Q1Playground() {
     for (const row of rref) {
       const leftZero = row.slice(0, 3).every((v) => Math.abs(v) < 1e-9);
       const rightNonzero = Math.abs(row[3] ?? 0) > 1e-9;
-      if (leftZero && rightNonzero) return { type: "none" as const };
+      if (leftZero && rightNonzero) return { type: "none" as const, rref, pivots };
     }
     // Unique solution?
     if (pivots.length === 3) {
@@ -131,9 +146,14 @@ export function QL3Q1Playground() {
         const col = pivots[i];
         if (col !== undefined) sol[col] = rref[i]?.[3] ?? 0;
       }
-      return { type: "unique" as const, sol };
+      return { type: "unique" as const, sol, rref, pivots };
     }
-    return { type: "infinite" as const, rank: pivots.length };
+    return {
+      type: "infinite" as const,
+      rank: pivots.length,
+      rref,
+      pivots,
+    };
   }, [eqs, rhs]);
 
   // Determinant (3×3 via Sarrus' rule, computed from the coefficient matrix).
@@ -157,6 +177,33 @@ export function QL3Q1Playground() {
       : solution.type === "none"
         ? { color: "var(--wrong)", text: "0 solutions — planes contradict", bg: "bg-wrong/10 border-wrong/40" }
         : { color: "var(--warn)", text: "∞ solutions — under-determined", bg: "bg-warn/10 border-warn/40" };
+
+  // Build the row data shape expected by the shared graph + step
+  // components.
+  const rows: [number, number, number, number][] = eqs.map((e, i) => [
+    e.a,
+    e.b,
+    e.c,
+    rhs[i] ?? 0,
+  ]);
+  const graphSolution =
+    solution.type === "unique"
+      ? ({ type: "unique" as const, sol: solution.sol })
+      : solution.type === "infinite"
+        ? ({ type: "infinite" as const, rank: solution.rank })
+        : ({ type: "none" as const });
+  const explainerSteps = useMemo(
+    () =>
+      buildSystemSolveSteps({
+        rows,
+        rref: solution.rref,
+        pivots: solution.pivots,
+        rank: solution.pivots.length,
+        solution: graphSolution,
+        det,
+      }),
+    [rows, solution, graphSolution, det],
+  );
 
   return (
     <div className="bg-elev/40 border border-line rounded-xl p-4">
@@ -265,6 +312,89 @@ export function QL3Q1Playground() {
           When |det| → 0, the system loses information — 0 or ∞ solutions
           instead of 1.
         </div>
+      </div>
+
+      {/* Visualisations: 2D stripe graph + matrix heatmap side by side */}
+      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Plane orientations (2D)
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each tilted stripe is one plane — see how its angle tracks the
+            normal vector. Watch the three stripes converge when the system
+            meets at a point.
+          </p>
+          <PlaneStripesGraph
+            rows={rows}
+            solution={graphSolution}
+            width={undefined}
+            height={200}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Augmented matrix [A | b]
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Color = magnitude, sign = direction. Watch the columns light up
+            as you edit — the columns without pivots (free variables) carry
+            infinite solutions.
+          </p>
+          <MatrixStripHeatmap
+            matrix={rows}
+            highlightCols={solution.pivots}
+            maxAbs={Math.max(
+              3,
+              ...rows.flat().map((v) => Math.abs(v) || 0),
+            )}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Row magnitude bars */}
+      <div className="mt-3 bg-card border border-line rounded-xl p-3">
+        <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+          Row magnitudes — feel when a row collapses
+        </div>
+        <BarsGraph
+          values={rows.map((r) => Math.hypot(r[0], r[1], r[2], r[3]))}
+          labels={rows.map((_, i) => `R${i + 1}`)}
+          width={undefined}
+          height={100}
+          className="w-full"
+        />
+      </div>
+
+      {/* What's-happening toggle + deep step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
 
       {/* Presets */}

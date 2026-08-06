@@ -2,15 +2,22 @@
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { motion } from "framer-motion";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Question E2-q1: "If Av = -2v, what is the eigenvalue?"
 // Story: A negative eigenvalue flips the eigenvector. The student drags
 // λ and watches the vector either stretch (λ > 1), shrink (0 < λ < 1),
 // flip (λ < 0), or collapse (λ = 0).
+//
+// Enhanced: a bars graph of v vs λv; a prose step explainer walking
+// through what λ controls.
 
 export function QE2Q1Playground() {
   const [v, setV] = useState({ x: 1, y: 0 });
   const [lambda, setLambda] = useState(-2);
+  const [showSteps, setShowSteps] = useState(false);
 
   const Av = useMemo(() => ({ x: lambda * v.x, y: lambda * v.y }), [
     lambda,
@@ -31,6 +38,54 @@ export function QE2Q1Playground() {
             : lambda === -1
               ? "λ = -1 → vector flips 180°"
               : `λ < 0 → vector flips and stretches by ×|${lambda}|`;
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read v — the eigenvector (input)",
+        detail:
+          "v is the eigenvector — the special direction that A only " +
+          "stretches (no rotation). Drag v anywhere on the canvas; for " +
+          "this question any non-zero v works.",
+        value: `v = (${v.x}, ${v.y})`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Apply A — but A only stretches v by λ",
+        detail:
+          "A·v = λ·v. So multiplying v by the scalar λ gives the same " +
+          "result as applying the matrix. λ is the eigenvalue — it " +
+          "tells you HOW MUCH the transformation stretched the vector.",
+        value: `Av = λv`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute λv — the stretched vector",
+        detail:
+          "Each component of v is multiplied by λ: (λ·v₁, λ·v₂). " +
+          "Negative λ flips the direction; |λ| > 1 stretches, " +
+          "|λ| < 1 shrinks.",
+        value: `λv = (${Av.x.toFixed(2)}, ${Av.y.toFixed(2)})`,
+        tone: lambda < 0 ? ("warn" as const) : ("accent" as const),
+      },
+      {
+        title: "Read the magnitude of the eigenvalue",
+        detail:
+          "|λ| = how much A scales v. Sign of λ = whether A flips " +
+          "the direction. The bars graph shows v vs λv side by side " +
+          "for direct comparison.",
+        value: `λ = ${lambda.toFixed(2)}, |λ| = ${Math.abs(lambda).toFixed(2)}`,
+        tone: lambda < 0 ? ("warn" as const) : ("accent" as const),
+      },
+      {
+        title: "Geometric interpretation",
+        detail: description,
+        value: description,
+        tone: "accent" as const,
+      },
+    ],
+    [v, Av, lambda, description],
+  );
 
   return (
     <div className="bg-elev/40 border border-line rounded-xl p-4">
@@ -136,6 +191,57 @@ export function QE2Q1Playground() {
             <div className="text-[10px] text-dim mt-1">{description}</div>
           </motion.div>
         </div>
+      </div>
+
+      {/* Graph: v vs λv bars */}
+      <div className="mt-3 grid sm:grid-cols-1 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            v vs λv — side by side
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The first two bars are v&apos;s components. The next two are
+            λ·v&apos;s. The ratio between them is exactly λ — try it with
+            the slider.
+          </p>
+          <BarsGraph
+            values={[v.x, v.y, Av.x, Av.y]}
+            labels={["v₁", "v₂", "(λv)₁", "(λv)₂"]}
+            maxAbs={Math.max(6, Math.abs(Av.x), Math.abs(Av.y), Math.abs(v.x), Math.abs(v.y))}
+            width={undefined}
+            height={140}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

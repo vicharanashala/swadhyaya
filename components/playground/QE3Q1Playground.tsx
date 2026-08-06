@@ -3,6 +3,12 @@ import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { fmt } from "@/lib/math";
 import { create, all, det as mathjsDet } from "mathjs";
+import { Info, ChevronDown, ChevronUp, Shuffle } from "lucide-react";
+import {
+  BarsGraph,
+  MatrixStripHeatmap,
+} from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 const math = create(all);
 void math;
@@ -13,10 +19,15 @@ void mathjsDet;
 // Story: det(A - λI) is a polynomial in λ of degree n. The student picks
 // the matrix size (2×2, 3×3, 4×4) and the polynomial degree appears.
 // mathjs symbolically computes det(A - λI) for a sample matrix.
+//
+// Enhanced: a heatmap of A, a bars graph of the polynomial coefficients,
+// a "shuffle" button to roll a new random matrix, and a prose step
+// explainer walking through the characteristic polynomial.
 
 export function QE3Q1Playground() {
   const [n, setN] = useState(3);
   const [seed, setSeed] = useState(0);
+  const [showSteps, setShowSteps] = useState(false);
 
   const poly = useMemo(() => {
     try {
@@ -104,11 +115,66 @@ export function QE3Q1Playground() {
         .join(" + ");
       void mathjsDet;
       void math;
-      return { A, expanded, deg: n };
+      // Trace and det for the explainer.
+      const traceA = tr(A);
+      const detA = detFn(A);
+      return { A, expanded, deg: n, coeffs, traceA, detA };
     } catch {
-      return { A: [], expanded: "λ^n ...", deg: n };
+      return { A: [], expanded: "λ^n ...", deg: n, coeffs: [], traceA: 0, detA: 0 };
     }
   }, [n, seed]);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read A — the matrix whose eigenvalues we want",
+        detail:
+          "Pick a size n and a sample matrix A appears. A's " +
+          "eigenvalues are the roots of det(A − λI) = 0 — that's the " +
+          "characteristic equation.",
+        value: `A is ${n}×${n}`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Build A − λI",
+        detail:
+          "Subtract λ from each diagonal entry. A − λI is a matrix " +
+          "with λ sprinkled along the diagonal and zeros elsewhere. " +
+          "Its determinant is a polynomial in λ.",
+        value: `A − λI = (diagonal entries − λ)`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute det(A − λI)",
+        detail:
+          "Expand the determinant — each term is a product of n entries " +
+          "with one from each row and column. The result is a polynomial " +
+          "whose coefficients are (−1)^k · (sum of (n−k)×(n−k) principal " +
+          "minors of A).",
+        value: poly.expanded,
+        tone: "accent" as const,
+      },
+      {
+        title: "Read the degree",
+        detail:
+          "The leading term is (−λ)^n. That's degree n. For a 2×2 " +
+          "matrix it's a quadratic (λ²); for 3×3 it's a cubic; for 4×4 " +
+          "it's a quartic. The degree matches the matrix size.",
+        value: `degree = ${poly.deg}`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Connect to the matrix's invariants",
+        detail:
+          "Coefficient of λ^(n−1) is −tr(A) (negative trace). The " +
+          "constant term is det(A). So the characteristic polynomial " +
+          "encodes both invariants directly.",
+        value: `tr(A) = ${poly.traceA}, det(A) = ${poly.detA}`,
+        tone: "faint" as const,
+      },
+    ],
+    [poly, n],
+  );
 
   return (
     <div className="bg-elev/40 border border-line rounded-xl p-4">
@@ -120,7 +186,7 @@ export function QE3Q1Playground() {
         size n.
       </p>
 
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className="text-[10px] text-faint font-mono">size n =</span>
         {[2, 3, 4].map((s) => (
           <button
@@ -138,6 +204,13 @@ export function QE3Q1Playground() {
             {s}×{s}
           </button>
         ))}
+        <button
+          onClick={() => setSeed((x) => x + 1)}
+          className="text-[10px] px-2 py-1 border border-line rounded hover:bg-elev/60 text-dim hover:text-ink inline-flex items-center gap-1"
+          aria-label="Shuffle matrix"
+        >
+          <Shuffle size={10} aria-hidden="true" /> shuffle
+        </button>
       </div>
 
       <div className="bg-card border border-line rounded p-3 space-y-2">
@@ -177,6 +250,74 @@ export function QE3Q1Playground() {
           </div>
           <div className="text-2xl font-mono text-accent">{poly.deg}</div>
         </div>
+      </div>
+
+      {/* Graphs: matrix heatmap + polynomial coefficient bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Matrix A — sign and magnitude
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The {n}×{n} sample matrix. The diagonal entries are about to
+            become (aᵢᵢ − λ) when we form A − λI.
+          </p>
+          <MatrixStripHeatmap
+            matrix={poly.A}
+            maxAbs={Math.max(4, ...poly.A.flat().map((v) => Math.abs(v) || 0))}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Polynomial coefficients — from λ^{poly.deg} to constant
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each bar is one coefficient of the characteristic polynomial.
+            The leading bar (orange) is the ±1 from (−λ)^n.
+          </p>
+          <BarsGraph
+            values={poly.coeffs}
+            labels={poly.coeffs.map((_, i) => `λ^${poly.deg - i}`)}
+            maxAbs={Math.max(
+              poly.deg + 1,
+              ...poly.coeffs.map((v) => Math.abs(v) || 0),
+            )}
+            highlights={[0]}
+            width={undefined}
+            height={140}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

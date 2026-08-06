@@ -4,6 +4,12 @@ import { VectorCanvas, worldToPixel } from "@/components/viz/VectorCanvas";
 import { Slider } from "./Slider";
 import { m2eigen, fmt } from "@/lib/math";
 import { Sparkles } from "lucide-react";
+import {
+  PlaygroundExplanation,
+  ExplanationSection,
+  ExplanationTable,
+  ExplanationRow,
+} from "./PlaygroundExplanation";
 
 // Concept E1: Eigenvectors are the special vectors that don't change direction.
 // Three ways to find one:
@@ -50,6 +56,10 @@ export function EigenDiscoverPlayground() {
   const collinearity =
     (v.x * out.x + v.y * out.y) / (vLen * outLen);
   const closeEigenvector = Math.abs(Math.abs(collinearity) - 1) < 0.05;
+
+  // Estimated eigenvalue when v is near an eigenvector.
+  const estimatedLambda = outLen / vLen;
+  const lambdaSign = Math.sign(collinearity);
 
   // Eigenvectors scaled to a visible length (sqrt of eigenvalue magnitude).
   const ev1 = eigen
@@ -116,6 +126,7 @@ export function EigenDiscoverPlayground() {
   const meterPct = ((collinearity + 1) / 2) * 100;
 
   return (
+    <div className="space-y-4">
     <div className="grid lg:grid-cols-[1fr_320px] gap-4">
       <div className="bg-card border border-line rounded-xl p-4">
         <h3 className="text-sm font-medium text-ink mb-1">
@@ -353,6 +364,117 @@ export function EigenDiscoverPlayground() {
           </div>
         </div>
       </div>
+    </div>
+
+    <PlaygroundExplanation title="What's happening — the eigen test">
+      <ExplanationSection label="Matrix M">
+        <ExplanationTable>
+          <tbody>
+            <ExplanationRow
+              label="M"
+              value={
+                <span>
+                  [<span className="text-vector">{fmt(a)}</span>,{" "}
+                  <span className="text-matrix">{fmt(b)}</span>;{" "}
+                  <span className="text-eigen">{fmt(c)}</span>,{" "}
+                  <span className="text-singular">{fmt(d)}</span>]
+                </span>
+              }
+              hint={`det = ${fmt(a * d - b * c, 3)} · trace = ${fmt(a + d, 3)}`}
+            />
+            <ExplanationRow
+              label="test v"
+              value={<span className="text-accent">({fmt(v.x)}, {fmt(v.y)})</span>}
+              hint="what you're dragging"
+            />
+            <ExplanationRow
+              label="Mv"
+              value={
+                <span className="text-accent">
+                  ({fmt(out.x)}, {fmt(out.y)})
+                </span>
+              }
+              hint={`${fmt(a)}·${fmt(v.x)} + ${fmt(b)}·${fmt(v.y)}, ${fmt(c)}·${fmt(v.x)} + ${fmt(d)}·${fmt(v.y)}`}
+            />
+          </tbody>
+        </ExplanationTable>
+      </ExplanationSection>
+
+      <ExplanationSection label="Eigen-test (collinearity)">
+        <ExplanationTable>
+          <tbody>
+            <ExplanationRow
+              label="cos θ"
+              value={
+                <span
+                  className={
+                    closeEigenvector
+                      ? "text-accent"
+                      : Math.abs(collinearity) > 0.7
+                        ? "text-warn"
+                        : "text-ink"
+                  }
+                >
+                  {fmt(collinearity, 3)}
+                </span>
+              }
+              hint="= 1 (or −1) means v is parallel to Mv — v is an eigenvector"
+            />
+            <ExplanationRow
+              label="θ (angle)"
+              value={
+                <span className="text-ink">
+                  {fmt(Math.acos(Math.max(-1, Math.min(1, collinearity))) * (180 / Math.PI), 1)}°
+                </span>
+              }
+              hint="angle between v and Mv"
+            />
+            <ExplanationRow
+              label="λ (estimated)"
+              value={
+                <span
+                  className={
+                    closeEigenvector ? "text-accent font-bold" : "text-dim"
+                  }
+                >
+                  {closeEigenvector ? fmt(lambdaSign * estimatedLambda, 3) : "—"}
+                </span>
+              }
+              hint="|Mv| / |v|, signed by direction"
+            />
+          </tbody>
+        </ExplanationTable>
+      </ExplanationSection>
+
+      <ExplanationSection label="Computed eigenvalues of M">
+        <ExplanationTable>
+          <tbody>
+            {eigen === null && (
+              <ExplanationRow
+                label="eigenvalues"
+                value={<span className="text-warn">none (real)</span>}
+                hint="the matrix has only complex eigenvalues"
+              />
+            )}
+            {eigen !== null &&
+              eigen.values.map((ev, i) => (
+                <ExplanationRow
+                  key={i}
+                  label={`λ${i + 1}`}
+                  value={
+                    <span className="text-accent">{fmt(ev, 3)}</span>
+                  }
+                  hint={
+                    eigen.vectors[i]
+                      ? `eigenvector ≈ (${fmt(eigen.vectors[i][0])}, ${fmt(eigen.vectors[i][1])})`
+                      : undefined
+                  }
+                />
+              ))}
+          </tbody>
+        </ExplanationTable>
+      </ExplanationSection>
+    </PlaygroundExplanation>
     </div>
   );
 }

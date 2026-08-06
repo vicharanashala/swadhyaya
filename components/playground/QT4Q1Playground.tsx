@@ -1,9 +1,12 @@
 "use client";
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
-import { matRref, fmt } from "@/lib/math";
+import { matRref, fmt, m2det } from "@/lib/math";
 import { motion } from "framer-motion";
 import { create, all } from "mathjs";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph, MatrixStripHeatmap } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Question T4-q1: "For T(x,y) = (x + 2y, 2x + 4y), what is in the null
 // space?"
@@ -16,11 +19,20 @@ const math = create(all);
 
 export function QT4Q1Playground() {
   const [probe, setProbe] = useState({ x: 1, y: -1 });
+  const [showSteps, setShowSteps] = useState(false);
 
   // T is fixed: T(x, y) = (x + 2y, 2x + 4y).
   const Tx = probe.x + 2 * probe.y;
   const Ty = 2 * probe.x + 4 * probe.y;
   const inNull = Math.abs(Tx) < 1e-6 && Math.abs(Ty) < 1e-6;
+
+  // T's matrix — fixed for this question.
+  const Tmatrix = [[1, 2], [2, 4]] as const;
+  const Tdet = m2det(Tmatrix);
+  const isSingular = Math.abs(Tdet) < 1e-6;
+  // Rank-nullity: rank(T) + nullity(T) = dim(input) = 2.
+  const rank = isSingular ? 1 : 2;
+  const nullity = isSingular ? 1 : 0;
 
   // Symbolic null space: solve the augmented system using mathjs.
   const symbolicNull = useMemo(() => {
@@ -59,6 +71,57 @@ export function QT4Q1Playground() {
     }
     return points;
   }, []);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read T — its matrix is [[1, 2], [2, 4]]",
+        detail:
+          "T(x, y) = (x + 2y, 2x + 4y). Note the second row is twice " +
+          "the first — that means T collapses the plane: a whole LINE " +
+          "of vectors lands on the same point.",
+        value: `T = [[1, 2], [2, 4]]`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute det(T) — is T invertible?",
+        detail:
+          "det(T) = 1·4 − 2·2 = 0. Non-zero det would mean T inverts; " +
+          "zero means T collapses at least one dimension. Here T is " +
+          "singular, so we EXPECT a non-trivial null space.",
+        value: `det = ${fmt(Tdet, 3)} (singular)`,
+        tone: "warn" as const,
+      },
+      {
+        title: "Solve T(p) = (0, 0) for p — that's the null space",
+        detail:
+          "Two equations: x + 2y = 0 and 2x + 4y = 0. The second is " +
+          "just 2× the first — they say the same thing. One " +
+          "constraint on two unknowns = a LINE of solutions.",
+        value: "x + 2y = 0",
+        tone: "accent" as const,
+      },
+      {
+        title: "Rank-nullity check",
+        detail:
+          "rank(T) + nullity(T) = dim(input) = 2. With det = 0 we know " +
+          "rank < 2; solving the system confirms rank = 1 and " +
+          "nullity = 1. The null space is 1D (a line).",
+        value: `rank ${rank} + nullity ${nullity} = 2 ✓`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Geometrically — the null space is the green dashed line",
+        detail:
+          "Every point on x + 2y = 0 is sent to (0, 0) by T. Drop " +
+          "probes anywhere on the canvas — only the ones landing on " +
+          "the line go to 0.",
+        value: `probe p = (${probe.x}, ${probe.y})`,
+        tone: "faint" as const,
+      },
+    ],
+    [Tdet, rank, nullity, probe],
+  );
 
   return (
     <div className="bg-elev/40 border border-line rounded-xl p-4">
@@ -161,6 +224,72 @@ export function QT4Q1Playground() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Graphs: matrix heatmap + dimension counts */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Matrix T — note row 2 = 2 × row 1
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The rows are proportional — that&apos;s the visual fingerprint
+            of singular T. The transformation collapses 2D → 1D.
+          </p>
+          <MatrixStripHeatmap
+            matrix={[Array.from(Tmatrix[0]), Array.from(Tmatrix[1])]}
+            highlightRows={[0, 1]}
+            maxAbs={5}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Rank-nullity — see the split
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Total dimension = 2. The "rank" bar is what survives; the
+            "nullity" bar is what gets crushed to 0.
+          </p>
+          <BarsGraph
+            values={[rank, nullity]}
+            labels={["rank", "nullity"]}
+            maxAbs={3}
+            highlights={[1]}
+            width={undefined}
+            height={120}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

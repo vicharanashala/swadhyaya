@@ -57,6 +57,7 @@ export interface VectorCanvasProps {
   worldSize?: number; // half-size of world coords (default 10, so world is -10..10)
   showGrid?: boolean;
   showAxes?: boolean;
+  showAxisLabels?: boolean; // numeric tick labels on both axes
   showOrigin?: boolean;
   gridStep?: number;
   background?: boolean;
@@ -247,6 +248,7 @@ export function VectorCanvas({
   worldSize = 10,
   showGrid = true,
   showAxes = true,
+  showAxisLabels = true,
   showOrigin = true,
   gridStep = 1,
   background = true,
@@ -467,6 +469,82 @@ export function VectorCanvas({
             >
               y
             </text>
+
+            {/* Numeric tick labels — both axes */}
+            {showAxisLabels &&
+              (() => {
+                const ticks: number[] = [];
+                for (let i = -worldSize; i <= worldSize; i++) {
+                  if (i !== 0) ticks.push(i);
+                }
+                return (
+                  <g aria-hidden="true">
+                    {/* X-axis labels */}
+                    {ticks.map((t) => {
+                      const px = width / 2 + (t / worldSize) * (width / 2);
+                      return (
+                        <g key={`x-${t}`}>
+                          <line
+                            x1={px}
+                            y1={height / 2 - 3}
+                            x2={px}
+                            y2={height / 2 + 3}
+                            stroke="var(--ink-dim)"
+                            strokeWidth={1}
+                          />
+                          <text
+                            x={px}
+                            y={height / 2 + 16}
+                            fill="var(--ink-faint)"
+                            fontSize="9"
+                            textAnchor="middle"
+                            fontFamily="ui-monospace, monospace"
+                          >
+                            {t}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    {/* Y-axis labels */}
+                    {ticks.map((t) => {
+                      const py = height / 2 - (t / worldSize) * (height / 2);
+                      return (
+                        <g key={`y-${t}`}>
+                          <line
+                            x1={width / 2 - 3}
+                            y1={py}
+                            x2={width / 2 + 3}
+                            y2={py}
+                            stroke="var(--ink-dim)"
+                            strokeWidth={1}
+                          />
+                          <text
+                            x={width / 2 - 8}
+                            y={py + 3}
+                            fill="var(--ink-faint)"
+                            fontSize="9"
+                            textAnchor="end"
+                            fontFamily="ui-monospace, monospace"
+                          >
+                            {t}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    {/* Origin marker */}
+                    <text
+                      x={width / 2 - 8}
+                      y={height / 2 + 16}
+                      fill="var(--ink-faint)"
+                      fontSize="9"
+                      textAnchor="end"
+                      fontFamily="ui-monospace, monospace"
+                    >
+                      0
+                    </text>
+                  </g>
+                );
+              })()}
           </>
         )}
 
