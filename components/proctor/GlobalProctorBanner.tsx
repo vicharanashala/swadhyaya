@@ -35,6 +35,10 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  endSiteSession,
+  getOrCreateSiteSession,
+} from "@/lib/proctoring";
 
 type DefaultPref = "ask" | "always" | "never";
 
@@ -106,6 +110,20 @@ export function GlobalProctorBanner() {
     setPref(next);
     writePref(next);
     markSeen();
+    // Manage the sticky site session so the data flows into the admin
+    // dashboard immediately.
+    if (next === "always") {
+      getOrCreateSiteSession();
+    } else if (next === "never") {
+      endSiteSession("completed");
+    }
+    // Broadcast so any other open components (TopNav badge, SiteProctorController)
+    // pick up the change without a reload.
+    window.dispatchEvent(
+      new CustomEvent("swadhyaya:proctor-pref-update", {
+        detail: { pref: next },
+      }),
+    );
     setOpen(false);
   };
 
@@ -287,6 +305,27 @@ function Pill({
   expanded: boolean;
   setExpanded: (v: boolean) => void;
 }) {
+  const handleChange = (p: DefaultPref) => {
+    onChange(p);
+    // Manage the sticky site session so we don't leave it dangling
+    // when the user flips the default off mid-session.
+    if (p === "always") {
+      getOrCreateSiteSession();
+    } else if (p === "never") {
+      endSiteSession("completed");
+    } else if (p === "ask") {
+      // "Ask" leaves the site session in whatever state it had —
+      // usually "completed" if it was running. Drop it.
+      endSiteSession("completed");
+    }
+    window.dispatchEvent(
+      new CustomEvent("swadhyaya:proctor-pref-update", {
+        detail: { pref: p },
+      }),
+    );
+    setExpanded(false);
+  };
+
   const label =
     pref === "always"
       ? "Proctoring ON by default"
@@ -340,7 +379,7 @@ function Pill({
               <button
                 key={p}
                 type="button"
-                onClick={() => onChange(p)}
+                onClick={() => handleChange(p)}
                 aria-pressed={pref === p}
                 className={cn(
                   "flex items-center gap-2.5 w-full text-left rounded p-2 transition",

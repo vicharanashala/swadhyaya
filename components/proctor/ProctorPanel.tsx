@@ -110,8 +110,9 @@ function ProctorBody({
   const [, forceTick] = useState(0); // 1 Hz re-render for live timer
 
   // Global per-browser default preference (set by GlobalProctorBanner).
-  // Read once on mount; if "always" jump straight to active, if "never"
-  // render nothing (skip proctoring entirely for this Test tab session).
+  // Read once on mount; if "always" jump straight into active using
+  // the existing site-wide session (or create a new one). If "never"
+  // render nothing. If "ask" → show the per-test consent modal.
   const [pref, setPref] = useState<"ask" | "always" | "never">("ask");
   useEffect(() => {
     try {
@@ -120,15 +121,22 @@ function ProctorBody({
         v === "always" || v === "never" ? v : "ask";
       setPref(next);
       if (next === "always") {
-        const a = startAttempt(conceptId);
-        setAttempt(a);
-        setMode("active");
+        // Site-wide proctoring: look for an existing _session attempt
+        // first; if none active, create the concept-specific one.
+        const sessions = listAttempts().filter(
+          (a) => a.conceptId === "_session" && a.status === "active",
+        );
+        if (sessions.length > 0) {
+          setAttempt(sessions[0]!);
+          setMode("active");
+        } else {
+          const a = startAttempt(conceptId);
+          setAttempt(a);
+          setMode("active");
+        }
         setShowLog(false);
-        onStart?.(a.id);
-      } else if (next === "never") {
-        // Skip the consent entirely — student is opted-out at the site
-        // level. Just mark that the ProctorPanel is "done" (no attempt).
       }
+      // "never" → render nothing.
     } catch {
       // localStorage disabled — fall back to "ask".
     }
@@ -148,16 +156,56 @@ function ProctorBody({
   }, [resumeAttemptId]);
 
   // Move into "finished" mode when the parent says the test completed.
+  // Site-wide sessions are NOT ended here — they're sticky until the
+  // user opts out, so finishing a test only marks the attempt with a
+  // result snapshot.
   useEffect(() => {
     if (status === "finished") {
       if (attempt) {
-        const ended = endAttempt(
-          attempt.id,
-          result?.passed ? "completed" : "abandoned",
-          result,
-        );
-        setAttempt(ended);
-        onEnd?.();
+        const isSession = attempt.conceptId === "_session";
+        if (isSession) {
+          // Just add the result metadata; don't flip to "finished"
+          // state. Site session stays open.
+          try {
+            const all = listAttempts();
+            const idx = all.findIndex((a) => a.id === attempt.id);
+            if (idx >= 0) {
+              const updated: Attempt = {
+                ...all[idx]!,
+                result: {
+                  score: result?.score ?? 0,
+                  total: result?.total ?? 0,
+                  passed: !!result?.passed,
+                },
+              };
+              const store = (() => {
+                try {
+                  return JSON.parse(
+                    window.localStorage.getItem("swadhyaya-proctoring") ||
+                      '{"attempts":{}}',
+                  );
+                } catch {
+                  return { attempts: {} };
+                }
+              })();
+              store.attempts[attempt.id] = updated;
+              window.localStorage.setItem(
+                "swadhyaya-proctoring",
+                JSON.stringify(store),
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        } else {
+          const ended = endAttempt(
+            attempt.id,
+            result?.passed ? "completed" : "abandoned",
+            result,
+          );
+          setAttempt(ended);
+          onEnd?.();
+        }
       }
       setMode("finished");
     }
@@ -183,7 +231,12 @@ function ProctorBody({
   });
 
   const start = () => {
-    const a = startAttempt(conceptId);
+    // Prefer the sticky site session if one is live; otherwise
+    // create a per-concept attempt.
+    const sessions = listAttempts().filter(
+      (a) => a.conceptId === "_session" && a.status === "active",
+    );
+    const a = sessions[0] ?? startAttempt(conceptId);
     setAttempt(a);
     setMode("active");
     setShowLog(false);
@@ -192,6 +245,14 @@ function ProctorBody({
 
   const endEarly = () => {
     if (!attempt) return;
+    const isSession = attempt.conceptId === "_session";
+    if (isSession) {
+      // Site-wide session: refuse to end early from Test tab. Just
+      // hand the user back to the consent modal so they can continue
+      // or opt out via the pill.
+      setMode("consent");
+      return;
+    }
     const ended = endAttempt(attempt.id, "abandoned");
     setAttempt(ended);
     setMode("finished");
@@ -217,10 +278,15 @@ function ProctorBody({
     // If the global preference was "ask" (still default after first
     // visit), lock the consent in on tap so the next Test tab visit
     // skips the modal entirely.
+    const inSessionContext =
+      typeof window !== "undefined" &&
+      listAttempts().some(
+        (a) => a.conceptId === "_session" && a.status === "active",
+      );
     return (
       <ProctorConsentModal
         isOpen
-        conceptId={conceptId}
+        conceptId={inSessionContext ? "_session · site-wide" : conceptId}
         onConsent={start}
         onSkip={reset}
         lockInOnConsent={pref === "ask"}
@@ -278,6 +344,7 @@ function ActivePill({
     (v) => v.type === "copy" || v.type === "paste" || v.type === "cut",
   ).length;
   const healthy = attempt.violationCount === 0;
+  const isSession = attempt.conceptId === "_session";
 
   const pillStyle: CSSProperties = {
     backdropFilter: "blur(8px)",
@@ -301,8 +368,15 @@ function ActivePill({
           <ShieldAlert size={16} aria-hidden="true" />
         )}
         <span className="text-xs font-medium">
-          Proctored attempt active
+          {isSession
+            ? "Site-wide proctoring active"
+            : "Proctored attempt active"}
         </span>
+        {isSession && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-current/40 font-mono">
+            site-wide
+          </span>
+        )}
         <span className="text-xs font-mono tabular-nums">
           {fmtDuration(attemptDuration(attempt))}
         </span>
@@ -320,13 +394,24 @@ function ActivePill({
             {showLog ? <EyeOff size={11} /> : <Eye size={11} />}
             {showLog ? "Hide log" : "Show log"}
           </button>
-          <button
-            onClick={onEndEarly}
-            className="text-[11px] px-2.5 py-1 rounded border border-current/40 hover:bg-canvas/40 inline-flex items-center gap-1 transition"
-          >
-            <Square size={11} aria-hidden="true" />
-            End early
-          </button>
+          {!isSession && (
+            <button
+              onClick={onEndEarly}
+              className="text-[11px] px-2.5 py-1 rounded border border-current/40 hover:bg-canvas/40 inline-flex items-center gap-1 transition"
+            >
+              <Square size={11} aria-hidden="true" />
+              End early
+            </button>
+          )}
+          {isSession && (
+            <a
+              href="/admin/proctor"
+              className="text-[11px] px-2.5 py-1 rounded border border-current/40 hover:bg-canvas/40 inline-flex items-center gap-1 transition"
+            >
+              <Eye size={11} aria-hidden="true" />
+              View admin
+            </a>
+          )}
         </div>
       </div>
 

@@ -148,8 +148,8 @@ export function AdminProctorDashboard() {
                 className="bg-card border border-accent/40 rounded-xl px-4 py-2 flex items-center gap-3"
               >
                 <span className="w-2 h-2 rounded-full bg-correct animate-pulse" />
-                <span className="font-mono text-xs px-2 py-0.5 rounded bg-accent/15 text-accent border border-accent/30">
-                  {a.conceptId}
+                <span className="font-mono text-xs">
+                  {conceptLabel(a.conceptId)}
                 </span>
                 <span className="text-[11px] text-dim font-mono">
                   started {relTime(a.startedAt, now)}
@@ -308,6 +308,22 @@ function statusBadge(a: Attempt) {
   );
 }
 
+function conceptLabel(id: string): React.ReactNode {
+  if (id === "_session") {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="font-mono px-1.5 py-0.5 rounded bg-accent/15 text-accent border border-accent/30">
+          site
+        </span>
+        <span className="text-[10px] text-faint uppercase tracking-wider">
+          site-wide
+        </span>
+      </span>
+    );
+  }
+  return <span className="font-mono text-ink">{id}</span>;
+}
+
 function RowExpandable({
   attempt: a,
   expanded,
@@ -325,7 +341,7 @@ function RowExpandable({
         }`}
         onClick={onToggle}
       >
-        <td className="px-3 py-2 font-mono text-ink">{a.conceptId}</td>
+        <td className="px-3 py-2 font-mono">{conceptLabel(a.conceptId)}</td>
         <td className="px-3 py-2">{statusBadge(a)}</td>
         <td className="px-3 py-2 font-mono text-dim whitespace-nowrap">
           {fmtDateTime(a.startedAt)}

@@ -173,6 +173,102 @@ export function listActiveAttempts(): Attempt[] {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Site-wide session proctoring
+// ─────────────────────────────────────────────────────────────────────────
+//
+// One long-lived attempt that starts the moment the user opts in to
+// proctoring site-wide and ends only when they opt out or close the
+// browser. Concept-id "_session" so the admin dashboard can
+// distinguish it from per-test attempts at a glance.
+
+export const SESSION_CONCEPT_ID = "_session";
+const SESSION_KEY = "swadhyaya-proctoring-session";
+
+export function getOrCreateSiteSession(): Attempt {
+  const store = loadStore();
+  const savedId = (() => {
+    try {
+      return window.localStorage.getItem(SESSION_KEY);
+    } catch {
+      return null;
+    }
+  })();
+  if (savedId) {
+    const existing = store.attempts[savedId];
+    if (existing && existing.conceptId === SESSION_CONCEPT_ID) {
+      // Bring it back to "active" if it had been marked complete/abandoned
+      // by anything else — sessions are sticky.
+      if (existing.status !== "active") {
+        const revived: Attempt = {
+          ...existing,
+          status: "active",
+          endedAt: undefined,
+          lastHeartbeatAt: Date.now(),
+        };
+        store.attempts[savedId] = revived;
+        saveStore(store);
+        return revived;
+      }
+      return existing;
+    }
+  }
+  // No session yet — create one.
+  const meta = readMeta();
+  const a: Attempt = {
+    id: uid(),
+    conceptId: SESSION_CONCEPT_ID,
+    startedAt: Date.now(),
+    status: "active",
+    violationCount: 0,
+    violations: [],
+    lastHeartbeatAt: Date.now(),
+    metadata: meta,
+  };
+  store.attempts[a.id] = a;
+  pruneOldAttempts(store);
+  saveStore(store);
+  try {
+    window.localStorage.setItem(SESSION_KEY, a.id);
+  } catch {
+    // ignore
+  }
+  return a;
+}
+
+export function clearSiteSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function endSiteSession(
+  status: AttemptStatus = "completed",
+): Attempt | null {
+  const store = loadStore();
+  let id: string | null = null;
+  try {
+    id = window.localStorage.getItem(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+  if (!id) return null;
+  const a = store.attempts[id];
+  if (!a || a.conceptId !== SESSION_CONCEPT_ID) return null;
+  const ended: Attempt = {
+    ...a,
+    status,
+    endedAt: Date.now(),
+  };
+  store.attempts[id] = ended;
+  saveStore(store);
+  clearSiteSession();
+  return ended;
+}
+
 export function endAttempt(
   id: string,
   status: AttemptStatus,

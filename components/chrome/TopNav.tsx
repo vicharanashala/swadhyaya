@@ -5,6 +5,7 @@ import { Flame, Layers } from "lucide-react";
 import { useProgress, levelFromXP, xpForLevel, xpForNextLevel, MAX_XP } from "@/lib/progress";
 import { AuthButton } from "./AuthButton";
 import { CONCEPTS } from "@/lib/curriculum";
+import { ProctorLiveBadge } from "@/components/proctor/ProctorLiveBadge";
 
 export function TopNav() {
   // Three primitive subscriptions. Avoid object selectors in Zustand v5 —
@@ -109,6 +110,8 @@ export function TopNav() {
             <Flame size={14} className="text-warn" aria-hidden="true" />
             <span className="font-mono text-ink">{streak}</span>
           </div>
+
+          <ProctorLiveBadge />
 
           <AuthButton />
         </div>
