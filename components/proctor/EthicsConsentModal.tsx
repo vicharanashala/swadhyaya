@@ -21,7 +21,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   ShieldCheck,
-  ShieldX,
   ScrollText,
   ChevronDown,
   Camera,
@@ -33,25 +32,31 @@ import { useCamera } from "./useCamera";
 
 interface EthicsConsentModalProps {
   isOpen: boolean;
+  /**
+   * Called once the student has scrolled to the end and pressed
+   * "I Accept". The proctoring flow is non-denyable on a proctored
+   * deployment — pressing Esc or clicking the backdrop only causes
+   * a "please scroll and accept" hint, never close without accept.
+   */
   onAccept: (camera: ReturnType<typeof useCamera>) => void;
-  onDecline: () => void;
 }
 
 export function EthicsConsentModal({
   isOpen,
   onAccept,
-  onDecline,
 }: EthicsConsentModalProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const camera = useCamera({ audio: true, context: "this attempt" });
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [rejectCount, setRejectCount] = useState(0);
   const consentRef = useRef<HTMLButtonElement>(null);
 
   // Reset scroll state when modal opens.
   useEffect(() => {
     if (isOpen) {
       setScrolledToEnd(false);
+      setRejectCount(0);
       if (bodyRef.current) bodyRef.current.scrollTop = 0;
       const t = window.setTimeout(() => consentRef.current?.focus(), 50);
       return () => window.clearTimeout(t);
@@ -73,11 +78,13 @@ export function EthicsConsentModal({
     return () => el.removeEventListener("scroll", onScroll);
   }, [isOpen]);
 
-  // Close on Escape — show a confirm-discard hint instead of silent close.
+  // Consent is non-denyable: pressing Esc or clicking the backdrop
+  // shows a one-line nudge instead of closing. Each attempt bumps
+  // the rejectCount so the user sees how many times they've tried.
   const handleKey = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      // show banner — for now just refuse close
       e.preventDefault();
+      setRejectCount((n) => n + 1);
     }
   }, []);
   useEffect(() => {
@@ -104,8 +111,11 @@ export function EthicsConsentModal({
       aria-labelledby="ethics-title"
       aria-describedby="ethics-body"
       onClick={(e) => {
-        // Backdrop click → silent refuse (mirror Tenali's modal trap)
-        if (e.target === e.currentTarget) return;
+        // Backdrop click is non-dismissable in a compulsory flow —
+        // record the attempt and surface a hint under the body.
+        if (e.target === e.currentTarget) {
+          setRejectCount((n) => n + 1);
+        }
       }}
       className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-[a11y-fade_180ms_ease]"
     >
@@ -221,7 +231,7 @@ export function EthicsConsentModal({
         </div>
 
         {/* Footer */}
-        <footer className="px-6 py-4 border-t border-line bg-elev/30 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+        <footer className="px-6 py-4 border-t border-line bg-elev/30 flex flex-col gap-2 shrink-0">
           <button
             type="button"
             onClick={async () => {
@@ -235,23 +245,29 @@ export function EthicsConsentModal({
             }}
             ref={consentRef}
             disabled={!scrolledToEnd || requesting}
-            className="flex-1 px-4 py-2.5 rounded-lg bg-accent text-canvas font-medium inline-flex items-center justify-center gap-1.5 hover:bg-accent/90 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full px-4 py-3 rounded-lg bg-accent text-canvas font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-accent/90 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ShieldCheck size={14} aria-hidden="true" />
             {requesting
               ? "Starting camera…"
               : scrolledToEnd
-                ? "I Accept — start proctored attempt"
+                ? "I Accept — start proctored session"
                 : "Scroll to accept ↓"}
           </button>
-          <button
-            type="button"
-            onClick={onDecline}
-            className="px-4 py-2.5 rounded-lg border border-line text-dim hover:text-ink hover:bg-elev transition inline-flex items-center justify-center gap-1.5"
-          >
-            <ShieldX size={14} aria-hidden="true" />
-            Decline &amp; skip monitoring
-          </button>
+          {rejectCount > 0 && (
+            <p
+              role="status"
+              className="text-[11px] text-warn text-center"
+              aria-live="polite"
+            >
+              Proctoring is required for this attempt. You've tried to
+              dismiss this consent{" "}
+              {rejectCount === 1 ? "once" : `${rejectCount} times`}.
+              Please scroll through the disclosure above and press
+              <strong className="text-ink"> I Accept </strong>
+              to continue.
+            </p>
+          )}
         </footer>
 
         {/* Tiny "are you there" caret */}
