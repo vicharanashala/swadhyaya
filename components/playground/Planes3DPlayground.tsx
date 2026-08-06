@@ -17,6 +17,19 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import {
+  useWebGL,
+  CanvasLoadingSkeleton,
+  Canvas2DFallback,
+} from "./_shared/CanvasFallback";
+import {
+  PlaneStripesGraph,
+  BarsGraph,
+} from "./_shared/MatrixGraph";
+import {
+  StepExplainer,
+  buildSystemSolveSteps,
+} from "./_shared/StepExplainer";
 
 // Concept L3: Three equations in three unknowns.
 // "Three planes meeting at a point — or not. The 3D upgrade of L2."
@@ -435,6 +448,41 @@ const onSliderChange = () => setPresetId("custom");
   // Collapsed by default — the tables are dense and slow the first
 // paint. The student can click the header to expand them when curious.
   const [showDetails, setShowDetails] = useState(false);
+  // 2D-stripes graph toggle. Off by default to keep the initial
+  // 3D view uncluttered. When the 3D can't render (WebGL failure)
+  // we flip it on automatically so the student still gets the
+  // visualisation.
+  const [showStripes, setShowStripes] = useState(false);
+
+  // WebGL probe — run once on mount. If WebGL fails we render the
+  // 2D fallback in place of the <Canvas>. The student can also
+  // toggle the stripes graph manually with the toggle button.
+  const webgl = useWebGL();
+  const use2D = webgl.status === "fail";
+  const solutionLabel =
+    solution.type === "unique"
+      ? `unique: (${solution.sol.map((s) => s.toFixed(2)).join(", ")})`
+      : solution.type === "infinite"
+        ? `infinite (rank ${solution.rank})`
+        : "no solution";
+  // Steps for the depth-explainer (prose, not a table).
+  const explainerSteps = useMemo(
+    () =>
+      buildSystemSolveSteps({
+        rows,
+        rref: rrefResult.rref,
+        pivots: rrefResult.pivots,
+        rank: rrefResult.rank,
+        solution,
+        det:
+          rows[0] && rows[1] && rows[2]
+            ? rows[0][0] * (rows[1][1] * rows[2][2] - rows[1][2] * rows[2][1]) -
+              rows[0][1] * (rows[1][0] * rows[2][2] - rows[1][2] * rows[2][0]) +
+              rows[0][2] * (rows[1][0] * rows[2][1] - rows[1][1] * rows[2][0])
+            : 0,
+      }),
+    [rows, rrefResult, solution],
+  );
 
   return (
     <div className="space-y-5">
@@ -465,7 +513,7 @@ const onSliderChange = () => setPresetId("custom");
         <p className="text-xs text-dim leading-relaxed">{activePreset.blurb}</p>
       )}
 
-      {/* What's-happening toggle + deep table */}
+      {/* What's-happening toggle + deep step explainer */}
       <div className="bg-card border border-line rounded-xl overflow-hidden">
         <button
           type="button"
@@ -488,13 +536,44 @@ const onSliderChange = () => setPresetId("custom");
           </span>
         </button>
         {showDetails && (
-          <DetailsTable
-            rows={rows}
-            rref={rrefResult.rref}
-            pivots={rrefResult.pivots}
-            rank={rrefResult.rank}
-            solution={solution}
-          />
+          <div className="border-t border-line p-4 space-y-4">
+            {/* Step-by-step narrative */}
+            <StepExplainer steps={explainerSteps} />
+
+            {/* Live bars graph: rank visualisation. Each row of the
+                augmented matrix becomes a bar; pivots highlighted. */}
+            <div className="bg-elev/30 border border-line rounded-xl p-3">
+              <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+                Row magnitudes — see which rows are "alive"
+              </div>
+              <BarsGraph
+                values={rows.map((r) => Math.hypot(r[0], r[1], r[2], r[3]))}
+                labels={rows.map((_, i) => `R${i + 1}`)}
+                highlights={rrefResult.pivots.map(
+                  (p) => rrefResult.pivots.indexOf(p),
+                )}
+                width={undefined}
+                height={120}
+                className="w-full"
+              />
+            </div>
+
+            {/* Compact raw table for the math-curious */}
+            <details className="bg-elev/20 border border-line rounded-xl px-3 py-2">
+              <summary className="text-[10px] text-faint uppercase tracking-wider cursor-pointer font-medium">
+                Raw table (RREF + per-plane)
+              </summary>
+              <div className="mt-3">
+                <DetailsTable
+                  rows={rows}
+                  rref={rrefResult.rref}
+                  pivots={rrefResult.pivots}
+                  rank={rrefResult.rank}
+                  solution={solution}
+                />
+              </div>
+            </details>
+          </div>
         )}
       </div>
 
@@ -505,162 +584,212 @@ const onSliderChange = () => setPresetId("custom");
             <h3 className="text-sm font-medium text-ink">
               Three planes in 3D — where do they meet?
             </h3>
-            <span className="text-[10px] text-faint font-mono">
-              drag · scroll · pinch
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowStripes(!showStripes)}
+                className={cn(
+                  "text-[10px] px-2 py-1 rounded border transition font-mono",
+                  showStripes || use2D
+                    ? "bg-accent/15 border-accent/40 text-accent"
+                    : "border-line text-dim hover:text-ink",
+                )}
+                aria-pressed={showStripes || use2D}
+                title="Show a 2D stripe graph of the three planes"
+              >
+                {showStripes || use2D ? "Hide 2D graph" : "Show 2D graph"}
+              </button>
+              <span className="text-[10px] text-faint font-mono">
+                drag · scroll · pinch
+              </span>
+            </div>
           </div>
-          <div className="bg-canvas border border-line rounded-lg h-[460px] overflow-hidden relative">
-            <Canvas
-              camera={cameraConfig}
-              dpr={[1, 1.5]}
-              gl={{
-                antialias: true,
-                powerPreference: "high-performance",
-                alpha: true,
-              }}
-            >
-              <ambientLight intensity={0.6} />
-              <directionalLight position={[5, 5, 5]} intensity={0.7} />
-              <directionalLight position={[-3, 2, -2]} intensity={0.3} />
-              <gridHelper args={[6, 6, "#3a3530", "#2a2520"]} />
-
-              {/* Numbered axes with tick marks */}
-              <AxesWithTicks />
-
-              {/* Axis end-labels (large) */}
-              <Html position={[3.4, 0, 0]} center>
-                <span className="text-sm font-mono font-bold text-[#ff8a8a]">
-                  x
-                </span>
-              </Html>
-              <Html position={[0, 3.4, 0]} center>
-                <span className="text-sm font-mono font-bold text-[#8aff8a]">
-                  y
-                </span>
-              </Html>
-              <Html position={[0, 0, 3.4]} center>
-                <span className="text-sm font-mono font-bold text-[#8ab4ff]">
-                  z
-                </span>
-              </Html>
-
-              <PlaneMesh
-                nx={deferred.a1}
-                ny={deferred.b1}
-                nz={deferred.c1}
-                d={deferred.d1}
-                color="#e8864a"
-                label="P1"
+          {showStripes || use2D ? (
+            <div className="space-y-3">
+              <PlaneStripesGraph
+                rows={rows}
+                solution={solution}
+                width={undefined}
+                height={340}
+                className="w-full"
               />
-              <PlaneMesh
-                nx={deferred.a2}
-                ny={deferred.b2}
-                nz={deferred.c2}
-                d={deferred.d2}
-                color="#6db3ff"
-                label="P2"
-              />
-              <PlaneMesh
-                nx={deferred.a3}
-                ny={deferred.b3}
-                nz={deferred.c3}
-                d={deferred.d3}
-                color="#4dd9a8"
-                label="P3"
-              />
-              {solution.type === "unique" && (
-                <group
-                  position={[
-                    solution.sol[0],
-                    solution.sol[1],
-                    solution.sol[2],
-                  ]}
+              {use2D && (
+                <div className="text-[10px] text-faint font-mono text-center">
+                  WebGL unavailable — using 2D fallback. Reason:{" "}
+                  {webgl.status === "fail" ? webgl.reason : "—"}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-canvas border border-line rounded-lg h-[460px] overflow-hidden relative">
+              {webgl.status === "checking" ? (
+                <CanvasLoadingSkeleton height={460} />
+              ) : use2D ? (
+                <Canvas2DFallback
+                  rows={rows}
+                  solutionLabel={solutionLabel}
+                  height={460}
+                />
+              ) : (
+                <Canvas
+                  camera={cameraConfig}
+                  dpr={[1, 1.5]}
+                  gl={{
+                    antialias: true,
+                    powerPreference: "high-performance",
+                    alpha: true,
+                  }}
                 >
-                  <mesh>
-                    <sphereGeometry args={[0.15, 24, 24]} />
-                    <meshStandardMaterial
-                      color="#ffcc66"
-                      emissive="#ffcc66"
-                      emissiveIntensity={0.9}
-                    />
-                  </mesh>
-                  <Html center distanceFactor={8}>
-                    <span className="text-[11px] font-mono text-[#ffcc66] font-semibold whitespace-nowrap bg-black/70 px-1.5 py-0.5 rounded">
-                      ({solution.sol.map((s) => s.toFixed(2)).join(", ")})
+                  <ambientLight intensity={0.6} />
+                  <directionalLight position={[5, 5, 5]} intensity={0.7} />
+                  <directionalLight position={[-3, 2, -2]} intensity={0.3} />
+                  <gridHelper args={[6, 6, "#3a3530", "#2a2520"]} />
+
+                  {/* Numbered axes with tick marks */}
+                  <AxesWithTicks />
+
+                  {/* Axis end-labels (large) */}
+                  <Html position={[3.4, 0, 0]} center>
+                    <span className="text-sm font-mono font-bold text-[#ff8a8a]">
+                      x
                     </span>
                   </Html>
-                </group>
-              )}
-              {linePoints && (
-                <Line
-                  points={linePoints}
-                  color="#ffcc66"
-                  lineWidth={3}
-                  dashed
-                  dashSize={0.15}
-                  gapSize={0.1}
-                />
-              )}
-              <OrbitControls
-                ref={controlsRef as unknown as React.ComponentProps<typeof OrbitControls>["ref"]}
-                enablePan={false}
-                minDistance={3}
-                maxDistance={20}
-              />
-            </Canvas>
+                  <Html position={[0, 3.4, 0]} center>
+                    <span className="text-sm font-mono font-bold text-[#8aff8a]">
+                      y
+                    </span>
+                  </Html>
+                  <Html position={[0, 0, 3.4]} center>
+                    <span className="text-sm font-mono font-bold text-[#8ab4ff]">
+                      z
+                    </span>
+                  </Html>
 
-            {/* Legend (top-left) */}
-            <div className="absolute top-3 left-3 bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 pointer-events-none">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-[#e8864a]" />
-                <span className="text-[#e8864a]">P1</span>
+                  <PlaneMesh
+                    nx={deferred.a1}
+                    ny={deferred.b1}
+                    nz={deferred.c1}
+                    d={deferred.d1}
+                    color="#e8864a"
+                    label="P1"
+                  />
+                  <PlaneMesh
+                    nx={deferred.a2}
+                    ny={deferred.b2}
+                    nz={deferred.c2}
+                    d={deferred.d2}
+                    color="#6db3ff"
+                    label="P2"
+                  />
+                  <PlaneMesh
+                    nx={deferred.a3}
+                    ny={deferred.b3}
+                    nz={deferred.c3}
+                    d={deferred.d3}
+                    color="#4dd9a8"
+                    label="P3"
+                  />
+                  {solution.type === "unique" && (
+                    <group
+                      position={[
+                        solution.sol[0],
+                        solution.sol[1],
+                        solution.sol[2],
+                      ]}
+                    >
+                      <mesh>
+                        <sphereGeometry args={[0.15, 24, 24]} />
+                        <meshStandardMaterial
+                          color="#ffcc66"
+                          emissive="#ffcc66"
+                          emissiveIntensity={0.9}
+                        />
+                      </mesh>
+                      <Html center distanceFactor={8}>
+                        <span className="text-[11px] font-mono text-[#ffcc66] font-semibold whitespace-nowrap bg-black/70 px-1.5 py-0.5 rounded">
+                          ({solution.sol.map((s) => s.toFixed(2)).join(", ")})
+                        </span>
+                      </Html>
+                    </group>
+                  )}
+                  {linePoints && (
+                    <Line
+                      points={linePoints}
+                      color="#ffcc66"
+                      lineWidth={3}
+                      dashed
+                      dashSize={0.15}
+                      gapSize={0.1}
+                    />
+                  )}
+                  <OrbitControls
+                    ref={controlsRef as unknown as React.ComponentProps<typeof OrbitControls>["ref"]}
+                    enablePan={false}
+                    minDistance={3}
+                    maxDistance={20}
+                  />
+                </Canvas>
+              )}
+
+              {/* Legend (top-left) */}
+              <div className="absolute top-3 left-3 bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 pointer-events-none">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-[#e8864a]" />
+                  <span className="text-[#e8864a]">P1</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-[#6db3ff]" />
+                  <span className="text-[#6db3ff]">P2</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-[#4dd9a8]" />
+                  <span className="text-[#4dd9a8]">P3</span>
+                </div>
+                <div className="flex items-center gap-2 border-t border-line pt-1 mt-1">
+                  <span className="w-3 h-3 rounded-full bg-[#ffcc66]" />
+                  <span className="text-[#ffcc66]">solution</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-[#6db3ff]" />
-                <span className="text-[#6db3ff]">P2</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-[#4dd9a8]" />
-                <span className="text-[#4dd9a8]">P3</span>
-              </div>
-              <div className="flex items-center gap-2 border-t border-line pt-1 mt-1">
-                <span className="w-3 h-3 rounded-full bg-[#ffcc66]" />
-                <span className="text-[#ffcc66]">solution</span>
+
+              {/* Viewport controls (bottom-right) */}
+              <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-lg p-1 flex flex-col gap-1 pointer-events-auto">
+                <button
+                  type="button"
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                  onClick={() => zoom(0.75)}
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
+                >
+                  <ZoomIn size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                  onClick={() => zoom(1.35)}
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
+                >
+                  <ZoomOut size={14} aria-hidden="true" />
+                </button>
+                <div className="h-px bg-white/10 my-0.5" />
+                <button
+                  type="button"
+                  aria-label="Reset view"
+                  title="Reset view"
+                  onClick={resetView}
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
+                >
+                  <Maximize2 size={13} aria-hidden="true" />
+                </button>
               </div>
             </div>
-
-            {/* Viewport controls (bottom-right) */}
-            <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-lg p-1 flex flex-col gap-1 pointer-events-auto">
-              <button
-                type="button"
-                aria-label="Zoom in"
-                title="Zoom in"
-                onClick={() => zoom(0.75)}
-                className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
-              >
-                <ZoomIn size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label="Zoom out"
-                title="Zoom out"
-                onClick={() => zoom(1.35)}
-                className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
-              >
-                <ZoomOut size={14} aria-hidden="true" />
-              </button>
-              <div className="h-px bg-white/10 my-0.5" />
-              <button
-                type="button"
-                aria-label="Reset view"
-                title="Reset view"
-                onClick={resetView}
-                className="w-8 h-8 rounded-md flex items-center justify-center text-faint hover:bg-white/10 hover:text-ink transition"
-              >
-                <Maximize2 size={13} aria-hidden="true" />
-              </button>
+          )}
+          {/* GPU diagnostic (only when WebGL actually came up successfully). */}
+          {webgl.status === "ok" && (
+            <div className="mt-2 text-[9px] text-faint font-mono truncate">
+              GPU: {webgl.renderer}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right column: equations + status */}

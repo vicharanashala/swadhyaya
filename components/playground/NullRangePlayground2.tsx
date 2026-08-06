@@ -2,6 +2,9 @@
 import { useState, useMemo } from "react";
 import { VectorCanvas } from "@/components/viz/VectorCanvas";
 import { Slider } from "./Slider";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { BarsGraph, MatrixStripHeatmap } from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Concept T4: Null Space and Range Space
 // "Null space = what gets squashed to zero. Range = what the transformation can produce."
@@ -53,6 +56,61 @@ export function NullRangePlayground2() {
   // Highlight if test is in null space
   const testIsNull = Math.abs(outputX) < 1e-6 && Math.abs(outputY) < 1e-6;
 
+  const [showSteps, setShowSteps] = useState(false);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read A — its two columns",
+        detail:
+          "Column 1 = where î lands after the transformation; column " +
+          "2 = where ĵ lands. Together they describe how the plane " +
+          "gets reshaped.",
+        value: `col 1 = (${a}, ${c}), col 2 = (${b}, ${d})`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Find rank — dimension of the range",
+        detail:
+          "The range (column space) is the span of the two columns. " +
+          "If they&apos;re independent, rank = 2 and range = the whole " +
+          "plane. If they&apos;re parallel, rank = 1 and range = a line. " +
+          "If both zero, rank = 0.",
+        value: `rank = ${rank}`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Find nullity — dimension of the kernel",
+        detail:
+          "The null space is everything that gets sent to 0. If det ≠ 0, " +
+          "only the zero vector is in the null space (nullity = 0). " +
+          "If det = 0, an entire line of vectors collapses to zero " +
+          "(nullity = 1).",
+        value: `nullity = ${nullity}`,
+        tone: nullity === 0 ? ("accent" as const) : ("warn" as const),
+      },
+      {
+        title: "Rank-nullity check",
+        detail:
+          "rank + nullity = dim(input) = 2. Always. The dimensions " +
+          "of what survives plus what gets crushed equals the total " +
+          "dimension of the space.",
+        value: `${rank} + ${nullity} = 2 ✓`,
+        tone: "accent" as const,
+      },
+      {
+        title: "Test vector v — where does it land?",
+        detail:
+          "Apply A to v = (testX, testY). Result: Av = (a·testX + b·testY, " +
+          "c·testX + d·testY). If both components are zero, v was in " +
+          "the null space.",
+        value: `Av = (${outputX.toFixed(2)}, ${outputY.toFixed(2)})`,
+        tone: testIsNull ? ("warn" as const) : ("accent" as const),
+      },
+    ],
+    [a, b, c, d, rank, nullity, testX, testY, outputX, outputY, testIsNull],
+  );
+
   return (
     <div className="grid lg:grid-cols-[1fr_300px] gap-4">
       <div className="bg-card border border-line rounded-xl p-4">
@@ -101,6 +159,71 @@ export function NullRangePlayground2() {
               : `Av = (${outputX.toFixed(2)}, ${outputY.toFixed(2)}).`}
           </div>
         </div>
+      </div>
+
+      {/* Graphs: matrix heatmap + rank/nullity bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Matrix A — sign and magnitude
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The columns of A span the range. When the rows become " +
+            "proportional (rank-deficient), A collapses a dimension.
+          </p>
+          <MatrixStripHeatmap
+            matrix={A}
+            maxAbs={Math.max(4, Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d))}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Rank-nullity split — dim(input) = 2
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The rank bar (orange) is what survives; the nullity bar " +
+            "(highlighted) is what gets crushed.
+          </p>
+          <BarsGraph
+            values={[rank, nullity]}
+            labels={["rank", "nullity"]}
+            maxAbs={3}
+            highlights={[1]}
+            width={undefined}
+            height={120}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

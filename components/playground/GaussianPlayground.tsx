@@ -1,10 +1,22 @@
 "use client";
 import { useState, useMemo } from "react";
-import { matRref, matRank, fmt } from "@/lib/math";
-import { RotateCcw, ChevronRight } from "lucide-react";
+import { matRref, fmt } from "@/lib/math";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  PivotStaircase,
+  BarsGraph,
+  MatrixStripHeatmap,
+} from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Concept L6: Row-Echelon Form (Gaussian Elimination)
 // "Make the staircase. Eliminate below, leave above alone — back-substitute later."
+//
+// Beyond the live editable matrix + RREF, we add:
+//   * A pivot-staircase SVG to make the staircase shape visible
+//   * A bars graph of column magnitudes (non-pivot columns collapse)
+//   * A matrix heatmap for the live coefficient view
+//   * A prose step-by-step explainer
 
 const PRESETS = [
   { name: "Staircase 3x3", M: [[2, 4, -2, 8], [1, 2, 1, 5], [3, 6, -1, 13]] },
@@ -14,7 +26,7 @@ const PRESETS = [
 
 export function GaussianPlayground() {
   const [M, setM] = useState(PRESETS[0].M);
-  const [step, setStep] = useState(0);
+  const [showSteps, setShowSteps] = useState(false);
 
   // Compute the echelon form via our matRref
   const { rref, pivots, rank } = useMemo(() => matRref(M), [M]);
@@ -37,6 +49,49 @@ export function GaussianPlayground() {
     return issues;
   }, [rref]);
 
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Form the augmented matrix [A | b]",
+        detail:
+          "Stack coefficients in a 3×3 block A and append the right-hand side " +
+          "as a fourth column b. This converts three equations into one " +
+          "object we can manipulate with row operations.",
+        value: `[${M.map((r) => `[${r.slice(0, 3).map((v) => fmt(v, 1)).join(", ")}]`).join(" ")} | [${M.map((r) => fmt(r[3]!, 1)).join(", ")}]]`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Apply three solution-preserving moves",
+        detail:
+          "Swap two rows (order doesn't matter), scale a row by any " +
+          "non-zero number, or add a multiple of one row to another. " +
+          "None of these change which (x, y, z) is the answer.",
+        value: "swap / scale / add-mult",
+        tone: "faint" as const,
+      },
+      {
+        title: "Sweep top-left → bottom-right, eliminating below each pivot",
+        detail:
+          "At each step: find the next non-zero in the pivot column, " +
+          "swap it to the top, use it to clear every entry below. The " +
+          "result is a staircase — zeros below the diagonal, pivots on " +
+          "the diagonal.",
+        value: `rank = ${rank}`,
+        tone: rank === 3 ? ("accent" as const) : ("warn" as const),
+      },
+      {
+        title: "Back-substitute from the bottom row up",
+        detail:
+          "The bottom row now has at most one non-zero entry — solve " +
+          "directly. Substitute that answer into the row above, solve " +
+          "again, and so on up the staircase.",
+        value: "x₃ → x₂ → x₁",
+        tone: "accent" as const,
+      },
+    ],
+    [M, rank],
+  );
+
   return (
     <div className="bg-card border border-line rounded-xl p-4">
       <h3 className="text-sm font-medium text-ink mb-1">
@@ -45,7 +100,7 @@ export function GaussianPlayground() {
       <p className="text-xs text-dim mb-4">
         A matrix is in <span className="text-accent">row-echelon form</span> when
         each leading non-zero entry is strictly to the right of the one above it.
-        That's the staircase. Below each pivot is zero.
+        That&apos;s the staircase. Below each pivot is zero.
       </p>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -54,12 +109,14 @@ export function GaussianPlayground() {
             Your matrix
           </div>
           <MatrixEditable M={M} setM={setM} highlightPivots={pivots} />
-          <div className="mt-2 text-[10px] text-faint flex gap-3">
+          <div className="mt-2 text-[10px] text-faint flex gap-3 flex-wrap">
             <span>presets:</span>
             {PRESETS.map((p) => (
               <button
                 key={p.name}
-                onClick={() => { setM(p.M.map(r => [...r])); setStep(0); }}
+                onClick={() => {
+                  setM(p.M.map((r) => [...r]));
+                }}
                 className="text-accent hover:underline"
               >
                 {p.name}
@@ -98,31 +155,97 @@ export function GaussianPlayground() {
           </div>
           {echelonCheck.length > 0 && (
             <div className="mt-2 text-xs text-warn">
-              Rows {echelonCheck.map(i => i + 1).join(", ")} still have a leading
-              entry that isn't strictly to the right. Keep eliminating.
+              Rows {echelonCheck.map((i) => i + 1).join(", ")} still have a leading
+              entry that isn&apos;t strictly to the right. Keep eliminating.
             </div>
           )}
         </div>
       </div>
 
-      <div className="mt-4 bg-elev/30 border border-line rounded-md p-3">
-        <div className="text-[10px] text-faint uppercase tracking-wider mb-2">
-          What the staircase means
+      {/* Graphs: pivot staircase + column magnitude bars */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-elev/30 border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Staircase shape — see the canonical pattern
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The pivot positions trace out a staircase. Below each pivot
+            everything is zero; above, entries can be anything (in echelon
+            form) or forced to zero too (in RREF).
+          </p>
+          <PivotStaircase
+            rows={rref}
+            pivots={pivots}
+            width={undefined}
+            className="w-full"
+          />
         </div>
-        <div className="grid grid-cols-3 gap-3 text-xs text-dim leading-relaxed">
-          <div>
-            <span className="text-accent font-mono">Pivot 1</span>: the first row
-            isolates one variable. Use it to eliminate the same column below.
+        <div className="bg-elev/30 border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Column magnitudes — feel when columns collapse
           </div>
-          <div>
-            <span className="text-accent font-mono">Pivot 2</span>: the second row
-            isolates another. Eliminate below it too.
-          </div>
-          <div>
-            <span className="text-accent font-mono">Zero rows at the bottom</span>:
-            no more information to extract. You have all the answers.
-          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each column is a vector. In RREF, non-pivot columns are linear
+            combinations of the pivot columns — that&apos;s why their
+            "independent" contribution can be zero in RREF.
+          </p>
+          <BarsGraph
+            values={Array.from({ length: 3 }, (_, j) =>
+              Math.hypot(...rref.map((row) => Math.abs(row[j] ?? 0))),
+            )}
+            labels={["col 1", "col 2", "col 3"]}
+            highlights={pivots}
+            maxAbs={Math.max(
+              2,
+              ...Array.from({ length: 3 }, (_, j) =>
+                Math.hypot(...rref.map((row) => Math.abs(row[j] ?? 0))),
+              ),
+            )}
+            width={undefined}
+            height={120}
+            className="w-full"
+          />
         </div>
+      </div>
+
+      <div className="mt-3 bg-elev/30 border border-line rounded-xl p-3">
+        <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+          Original matrix (heatmap)
+        </div>
+        <MatrixStripHeatmap
+          matrix={M}
+          maxAbs={Math.max(6, ...M.flat().map((v) => Math.abs(v) || 0))}
+          className="w-full"
+        />
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -139,7 +262,7 @@ function MatrixEditable({
 }) {
   const update = (i: number, j: number, v: number) => {
     const next = M.map((r) => [...r]);
-    next[i][j] = v;
+    next[i]![j] = v;
     setM(next);
   };
   return (

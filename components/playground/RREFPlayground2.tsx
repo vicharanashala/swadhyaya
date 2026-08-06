@@ -1,10 +1,21 @@
 "use client";
 import { useState, useMemo } from "react";
 import { matRref, fmt } from "@/lib/math";
-import { Sparkles, RotateCcw } from "lucide-react";
+import { Sparkles, RotateCcw, Info, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  PivotStaircase,
+  BarsGraph,
+  MatrixStripHeatmap,
+} from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Concept L7: RREF — Row-Reduced Echelon Form
 // "Take the staircase FURTHER. Every pivot = 1, everything above is zero too. UNIQUE."
+//
+// Beyond the live RREF, we add:
+//   * A pivot-staircase SVG to make the canonical shape visible
+//   * A bars graph of column magnitudes
+//   * A prose step-by-step explainer
 
 const PRESETS = [
   { name: "Unique answer", M: [[2, 3, 16], [5, 8, 37]] },
@@ -15,13 +26,13 @@ const PRESETS = [
 
 export function RREFPlayground2() {
   const [M, setM] = useState(PRESETS[0].M);
+  const [showSteps, setShowSteps] = useState(false);
 
   const { rref, pivots } = useMemo(() => matRref(M), [M]);
-  const [m, n] = [M.length, M[0].length - 1];
+  const [m, n] = [M.length, M[0]!.length - 1];
 
   // Determine solution type
   const solution = useMemo(() => {
-    // Check last column: if any pivot column is in the augmented column, no solution
     const augRank = pivots.filter((c) => c < n).length;
     const augFullRank = rref.every((row, i) => {
       const augVal = row[n];
@@ -29,10 +40,71 @@ export function RREFPlayground2() {
       if (restZero && Math.abs(augVal) > 1e-9) return false;
       return true;
     });
-    if (!augFullRank) return { type: "none", text: "No solution — the equations contradict." };
-    if (augRank < n) return { type: "infinite", text: `Infinite solutions — ${n - augRank} free variable(s).` };
-    return { type: "unique", text: "One unique solution." };
+    if (!augFullRank) return { type: "none" as const, text: "No solution — the equations contradict." };
+    if (augRank < n)
+      return {
+        type: "infinite" as const,
+        text: `Infinite solutions — ${n - augRank} free variable(s).`,
+      };
+    return { type: "unique" as const, text: "One unique solution." };
   }, [rref, pivots, n]);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read the original augmented matrix [A | b]",
+        detail:
+          "Two equations, two unknowns. The 2×2 block on the left is " +
+          "the coefficient matrix; the rightmost column is the " +
+          "right-hand side (b).",
+        value: `[${M.map((r) => `[${r.slice(0, n).map((v) => fmt(v, 1)).join(", ")}]`).join(" ")} | [${M.map((r) => fmt(r[n]!, 1)).join(", ")}]]`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Reduce to row-echelon form (zero out below pivots)",
+        detail:
+          "Sweep down the diagonal — eliminate entries below each pivot " +
+          "using row operations. Result: a triangular matrix with " +
+          "pivots marching right.",
+        value: `rank ${pivots.length}`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Continue to RREF — zero out ABOVE each pivot too",
+        detail:
+          "Sweep UP the diagonal this time — eliminate entries above " +
+          "each pivot, and scale each pivot row so the pivot itself " +
+          "is exactly 1. Result: the unique RREF.",
+        value: pivots.length > 0 ? `pivots normalised to 1` : "no pivots",
+        tone: "accent" as const,
+      },
+      {
+        title: "Why RREF is canonical — it's UNIQUE",
+        detail:
+          "Every pivot column has a 1 in exactly one row and 0 in " +
+          "every other row. That structure forces every other cell to " +
+          "a specific value. Different paths, same destination.",
+        value: solution.type === "unique"
+          ? "(x, y) directly readable"
+          : solution.type === "infinite"
+            ? "free variables parametrize"
+            : "row 0 = nonzero → contradiction",
+        tone: solution.type === "unique"
+          ? ("accent" as const)
+          : ("warn" as const),
+      },
+      {
+        title: "Classify the solution",
+        detail:
+          "If RREF has a row [0 0 | nonzero], the system " +
+          "contradicts. If rank < n, infinitely many. Otherwise " +
+          "exactly one.",
+        value: solution.text,
+        tone: solution.type === "unique" ? ("accent" as const) : ("warn" as const),
+      },
+    ],
+    [M, pivots, n, solution],
+  );
 
   return (
     <div className="bg-card border border-line rounded-xl p-4">
@@ -41,7 +113,7 @@ export function RREFPlayground2() {
           The unique final form
         </h3>
         <button
-          onClick={() => setM(PRESETS[0].M.map(r => [...r]))}
+          onClick={() => setM(PRESETS[0].M.map((r) => [...r]))}
           className="text-xs text-dim hover:text-ink flex items-center gap-1"
         >
           <RotateCcw size={11} /> reset
@@ -50,7 +122,7 @@ export function RREFPlayground2() {
       <p className="text-xs text-dim mb-4">
         Take echelon form one step further. Every pivot is <span className="text-accent">1</span>,
         and everything <span className="text-ink">above</span> each pivot is zero too.
-        The result is RREF — and it's <span className="text-accent font-medium">unique</span> for
+        The result is RREF — and it&apos;s <span className="text-accent font-medium">unique</span> for
         every system.
       </p>
 
@@ -95,7 +167,7 @@ export function RREFPlayground2() {
                 })}
                 <span className="text-faint">|</span>
                 <span className={`w-12 text-right ${pivots.length < m && row.slice(0,n).every(v=>Math.abs(v)<1e-9) ? "text-warn" : "text-accent"}`}>
-                  {fmt(row[n], 3)}
+                  {fmt(row[n]!, 3)}
                 </span>
               </div>
             ))}
@@ -107,12 +179,63 @@ export function RREFPlayground2() {
         {PRESETS.map((p) => (
           <button
             key={p.name}
-            onClick={() => setM(p.M.map(r => [...r]))}
+            onClick={() => setM(p.M.map((r) => [...r]))}
             className="text-xs px-2 py-1 border border-line rounded hover:bg-elev/60 text-dim hover:text-ink"
           >
             {p.name}
           </button>
         ))}
+      </div>
+
+      {/* Graphs: pivot staircase + column magnitudes */}
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <div className="bg-elev/30 border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Staircase — see how RREF normalises everything
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Orange dots are pivots, normalised to exactly 1. Above each
+            pivot everything is forced to zero. The shape is the same
+            regardless of which path you took.
+          </p>
+          <PivotStaircase
+            rows={rref}
+            pivots={pivots}
+            width={undefined}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-elev/30 border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            Column magnitudes
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Column magnitudes here reflect the NORMALISED pivots — 1 in " +
+            "every pivot column, since RREF scales them to 1.
+          </p>
+          <BarsGraph
+            values={Array.from({ length: n }, (_, j) =>
+              Math.hypot(...rref.map((row) => Math.abs(row[j] ?? 0))),
+            )}
+            labels={Array.from({ length: n }, (_, j) => `col ${j + 1}`)}
+            highlights={pivots}
+            maxAbs={2}
+            width={undefined}
+            height={120}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 bg-elev/30 border border-line rounded-xl p-3">
+        <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+          Original matrix (heatmap)
+        </div>
+        <MatrixStripHeatmap
+          matrix={M}
+          maxAbs={Math.max(6, ...M.flat().map((v) => Math.abs(v) || 0))}
+          className="w-full"
+        />
       </div>
 
       <div className={`mt-4 rounded-md p-3 text-sm flex items-start gap-2 ${
@@ -129,6 +252,35 @@ export function RREFPlayground2() {
           </div>
           <div className="text-xs opacity-80">{solution.text}</div>
         </div>
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="mt-3 bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
       </div>
     </div>
   );

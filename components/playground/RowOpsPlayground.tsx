@@ -1,16 +1,30 @@
 "use client";
 import { useState, useMemo } from "react";
 import { m2det, fmt } from "@/lib/math";
-import { ArrowRight, RotateCcw, Shuffle, Scaling, Plus } from "lucide-react";
 import {
-  PlaygroundExplanation,
-  ExplanationSection,
-  ExplanationTable,
-  ExplanationRow,
-} from "./PlaygroundExplanation";
+  RotateCcw,
+  Shuffle,
+  Scaling,
+  Plus,
+  Info,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import {
+  BarsGraph,
+  MatrixStripHeatmap,
+  LinesGraph,
+} from "./_shared/MatrixGraph";
+import { StepExplainer } from "./_shared/StepExplainer";
 
 // Concept L5: Row Operations — Multiply, Swap, Add
 // "Three moves that don't change the answer. Master the toolkit before you use it."
+//
+// Beyond the live editable matrix + op buttons, we add:
+//   * A lines-graph so the student can SEE the two lines on a 2D plot
+//   * A matrix heatmap of the current state
+//   * A bars graph of det + entries
+//   * A prose step-by-step explainer
 
 export function RowOpsPlayground() {
   const [a, setA] = useState(1);
@@ -18,6 +32,7 @@ export function RowOpsPlayground() {
   const [c, setC] = useState(1);
   const [d, setD] = useState(1);
   const [swap, setSwap] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
 
   const M = useMemo<[[number, number], [number, number]]>(() => {
     const base: [[number, number], [number, number]] = [[a, b], [c, d]];
@@ -62,11 +77,87 @@ export function RowOpsPlayground() {
   const y = (-m21 * b1 + m11 * b2) / det;
   const isDegenerate = Math.abs(det) < 0.1;
 
+  // Convert each row to slope-intercept form so we can plot.
+  // Each row is a·x + b·y = c (where c is b1 or b2 depending on the row).
+  const linesForGraph = useMemo(() => {
+    return M.map((row, i) => {
+      const ar = row[0] ?? 0;
+      const br = row[1] ?? 0;
+      const rhs = i === 0 ? b1 : b2;
+      if (Math.abs(br) > 1e-9) {
+        return { m: -ar / br, c: rhs / br };
+      }
+      // Vertical-ish line — represent with huge slope.
+      return { m: 1e6, c: -ar * 1e6 / (rhs || 1) };
+    });
+  }, [M, b1, b2]);
+
+  // Intersection of the two lines (the (x, y) answer).
+  const intersection = useMemo(() => {
+    if (isDegenerate) return null;
+    const [l1, l2] = linesForGraph;
+    if (!l1 || !l2) return null;
+    if (Math.abs(l1.m - l2.m) < 1e-6) return null;
+    const x = (l2.c - l1.c) / (l1.m - l2.m);
+    const y = l1.m * x + l1.c;
+    return { x, y };
+  }, [linesForGraph, isDegenerate]);
+
+  const explainerSteps = useMemo(
+    () => [
+      {
+        title: "Read the augmented matrix [A | b]",
+        detail:
+          "Two equations, two unknowns. The 2×2 block is A — its rows " +
+          "are the two lines we're solving. The right column is b — " +
+          "the constant on the right side of each equation.",
+        value: `[${M.map((r, i) => `[${r.map((v) => fmt(v, 1)).join(", ")} | ${fmt(i === 0 ? b1 : b2, 1)}]`).join(" ")}]`,
+        tone: "faint" as const,
+      },
+      {
+        title: "Compute det(A) — sign and magnitude",
+        detail:
+          "det = a·d − b·c. Sign tells you orientation (which line is " +
+          "above the other at x = 0); magnitude tells you how far apart " +
+          "they'd be scaled. When det → 0, lines become parallel or " +
+          "coincident.",
+        value: `det = ${fmt(det, 3)}`,
+        tone: isDegenerate ? ("warn" as const) : ("accent" as const),
+      },
+      {
+        title: "Apply the three solution-preserving moves",
+        detail:
+          "Swap rows, scale a row by non-zero, add a multiple of one row " +
+          "to another. The determinant tells you how each move changes " +
+          "the AREA: swap flips sign, scale-by-k multiplies by k, " +
+          "add-multiple leaves it unchanged.",
+        value: isDegenerate ? "0 — system collapsed" : "≠ 0 — invertible",
+        tone: isDegenerate ? ("warn" as const) : ("accent" as const),
+      },
+      {
+        title: "Read off (x, y) from Cramer's rule",
+        detail:
+          "x = (m₂₂·b₁ − m₁₂·b₂) / det, y = (−m₂₁·b₁ + m₁₁·b₂) / det. " +
+          "These numbers must stay PUT across any solution-preserving " +
+          "move. If they don't, you've made a mistake.",
+        value: `(x, y) = (${fmt(x, 3)}, ${fmt(y, 3)})`,
+        tone: isFinite(x) ? ("accent" as const) : ("warn" as const),
+      },
+    ],
+    [M, det, x, y, b1, b2, isDegenerate],
+  );
+
+  // Heatmap view of the augmented matrix.
+  const augMatrix = useMemo(
+    () => [M[0] ? [...M[0], b1] : [0, 0, b1], M[1] ? [...M[1], b2] : [0, 0, b2]],
+    [M, b1, b2],
+  );
+
   return (
     <div className="space-y-4">
       <div className="bg-card border border-line rounded-xl p-4">
         <h3 className="text-sm font-medium text-ink mb-2">
-          Three moves that don't change the answer
+          Three moves that don&apos;t change the answer
         </h3>
         <p className="text-xs text-dim mb-4">
           Solve: x + y = 5, x + y = 3. Wait — they have the same slope! The lines
@@ -160,108 +251,84 @@ export function RowOpsPlayground() {
         </div>
       </div>
 
-      <PlaygroundExplanation title="What's happening to the matrix">
-        <ExplanationSection label="Current matrix [A | b]">
-          <ExplanationTable>
-            <tbody>
-              <ExplanationRow
-                label="R1"
-                value={
-                  <span>
-                    [<span className="text-vector">{fmt(M[0][0])}</span>,{" "}
-                    <span className="text-matrix">{fmt(M[0][1])}</span> |{" "}
-                    <span className="text-accent">{fmt(b1)}</span>]
-                  </span>
-                }
-                hint={swap ? "originally was R2" : "originally was R1"}
-              />
-              <ExplanationRow
-                label="R2"
-                value={
-                  <span>
-                    [<span className="text-vector">{fmt(M[1][0])}</span>,{" "}
-                    <span className="text-matrix">{fmt(M[1][1])}</span> |{" "}
-                    <span className="text-accent">{fmt(b2)}</span>]
-                  </span>
-                }
-                hint={swap ? "originally was R1" : "originally was R2"}
-              />
-              <ExplanationRow
-                label="det"
-                value={
-                  <span className={isDegenerate ? "text-warn" : "text-accent"}>
-                    {fmt(det, 3)}
-                  </span>
-                }
-                hint={
-                  isDegenerate
-                    ? "≈ 0 — system is degenerate (parallel / coincident)"
-                    : "non-zero — unique solution"
-                }
-              />
-            </tbody>
-          </ExplanationTable>
-        </ExplanationSection>
-
-        <ExplanationSection label="Inverse formula (Cramer's rule)">
-          <ExplanationTable>
-            <tbody>
-              <ExplanationRow
-                label="A⁻¹ = 1/det"
-                value={
-                  <span className="text-matrix">
-                    1/{fmt(det, 3)} ·{" "}
-                    <span>
-                      [<span className="text-accent">{fmt(m22)}</span>,{" "}
-                      <span className="text-warn">−{fmt(m12)}</span>;{" "}
-                      <span className="text-warn">−{fmt(m21)}</span>,{" "}
-                      <span className="text-accent">{fmt(m11)}</span>]
-                    </span>
-                  </span>
-                }
-              />
-              <ExplanationRow
-                label="x ="
-                value={
-                  <span className={isDegenerate ? "text-warn" : "text-accent"}>
-                    {isFinite(x) ? fmt(x, 3) : "—"}
-                  </span>
-                }
-                hint={
-                  isFinite(x)
-                    ? `(det·${fmt(b1)} − ${fmt(m12)}·${fmt(b2)}) / ${fmt(det, 3)}`
-                    : "undefined — system is degenerate"
-                }
-              />
-              <ExplanationRow
-                label="y ="
-                value={
-                  <span className={isDegenerate ? "text-warn" : "text-accent"}>
-                    {isFinite(y) ? fmt(y, 3) : "—"}
-                  </span>
-                }
-                hint={
-                  isFinite(y)
-                    ? `(−${fmt(m21)}·${fmt(b1)} + det·${fmt(b2)}) / ${fmt(det, 3)}`
-                    : "undefined — system is degenerate"
-                }
-              />
-            </tbody>
-          </ExplanationTable>
-        </ExplanationSection>
-
-        <ExplanationSection label="Why row operations don't change the answer">
-          <p className="text-dim leading-relaxed">
-            Swapping two equations doesn't change which (x, y) satisfies both —
-            only the order they're written in. Scaling an equation by a
-            non-zero number multiplies both sides equally, so the same (x, y)
-            still satisfies it. Adding a multiple of one equation to another
-            preserves the solution because the new equation is just "old LHS
-            + k · old LHS = old RHS + k · old RHS" — if (x, y) satisfied
-            the originals, it satisfies the new one too.
+      {/* Graphs: lines visualisation + bars of the determinant */}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            The two equations as lines
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            Each row of the augmented matrix is one line. Watch them
+            converge when det ≠ 0; become parallel when det → 0.
           </p>
-        </ExplanationSection>
-      </PlaygroundExplanation>
+          <LinesGraph
+            rows={linesForGraph}
+            intersection={intersection}
+            width={undefined}
+            height={240}
+            className="w-full"
+          />
+        </div>
+        <div className="bg-card border border-line rounded-xl p-3">
+          <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+            det + matrix entry magnitudes
+          </div>
+          <p className="text-[10px] text-dim mb-2 leading-relaxed">
+            The rightmost bar is det — when it shrinks toward zero, the
+            parallel lines in the picture above merge into one.
+          </p>
+          <BarsGraph
+            values={[M[0]?.[0] ?? 0, M[0]?.[1] ?? 0, M[1]?.[0] ?? 0, M[1]?.[1] ?? 0, det]}
+            labels={["a", "b", "c", "d", "det"]}
+            maxAbs={Math.max(6, Math.abs(det) + 1)}
+            highlights={[4]}
+            width={undefined}
+            height={160}
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      <div className="bg-card border border-line rounded-xl p-3">
+        <div className="text-[10px] text-faint uppercase tracking-wider mb-2 font-medium">
+          Current matrix (heatmap)
+        </div>
+        <MatrixStripHeatmap
+          matrix={augMatrix}
+          maxAbs={Math.max(6, ...augMatrix.flat().map((v) => Math.abs(v) || 0))}
+          highlightCols={[2]}
+          className="w-full"
+        />
+      </div>
+
+      {/* Step-by-step explainer */}
+      <div className="bg-card border border-line rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSteps(!showSteps)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-elev/30 transition"
+          aria-expanded={showSteps}
+        >
+          <div className="flex items-center gap-2">
+            <Info size={12} className="text-accent" aria-hidden="true" />
+            <span className="text-xs font-medium text-ink">
+              What&apos;s happening — step by step
+            </span>
+          </div>
+          <span className="text-faint">
+            {showSteps ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </span>
+        </button>
+        {showSteps && (
+          <div className="border-t border-line p-3">
+            <StepExplainer steps={explainerSteps} compact />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
