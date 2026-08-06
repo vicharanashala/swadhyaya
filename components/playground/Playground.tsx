@@ -339,6 +339,26 @@ const QE5Q1Playground = dynamic(
   () => import("./QE5Q1Playground").then((m) => m.QE5Q1Playground),
   { loading: () => loading() },
 );
+const QV7Q1Playground = dynamic(
+  () => import("./QV7Q1Playground").then((m) => m.QV7Q1Playground),
+  { loading: () => loading() },
+);
+const QT1Q1Playground = dynamic(
+  () => import("./QT1Q1Playground").then((m) => m.QT1Q1Playground),
+  { loading: () => loading() },
+);
+const QF1Q1Playground = dynamic(
+  () => import("./QF1Q1Playground").then((m) => m.QF1Q1Playground),
+  { loading: () => loading() },
+);
+const QS4Q1Playground = dynamic(
+  () => import("./QS4Q1Playground").then((m) => m.QS4Q1Playground),
+  { loading: () => loading() },
+);
+const QE4Q1Playground = dynamic(
+  () => import("./QE4Q1Playground").then((m) => m.QE4Q1Playground),
+  { loading: () => loading() },
+);
 
 // Legacy aliases — old curriculum IDs that all point to the same component.
 const legacyAliases: Record<string, React.ComponentType> = {
@@ -509,8 +529,12 @@ function resolveComponent(
       return QV5Q1Playground;
     case "q-V6-q1":
       return QV6Q1Playground;
+    case "q-V7-q1":
+      return QV7Q1Playground;
     case "q-V8-q1":
       return QV8Q1Playground;
+    case "q-T1-q1":
+      return QT1Q1Playground;
     case "q-T2-q1":
       return QT2Q1Playground;
     case "q-T3-q1":
@@ -523,20 +547,26 @@ function resolveComponent(
       return QT7Q1Playground;
     case "q-T8-q1":
       return QT8Q1Playground;
+    case "q-F1-q1":
+      return QF1Q1Playground;
     case "q-E1-q1":
       return QE1Q1Playground;
     case "q-E2-q1":
       return QE2Q1Playground;
     case "q-E3-q1":
       return QE3Q1Playground;
+    case "q-E4-q1":
+      return QE4Q1Playground;
+    case "q-E5-q1":
+      return QE5Q1Playground;
     case "q-S1-q1":
       return QS1Q1Playground;
     case "q-S2-q1":
       return QS2Q1Playground;
     case "q-S3-q1":
       return QS3Q1Playground;
-    case "q-E5-q1":
-      return QE5Q1Playground;
+    case "q-S4-q1":
+      return QS4Q1Playground;
 
     // Legacy aliases — handled in `legacyAliases` above; not reachable here.
     case "matrix-times-mat":

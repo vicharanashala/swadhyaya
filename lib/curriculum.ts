@@ -62,20 +62,25 @@ export type PlaygroundId =
   | "q-V4-q1"
   | "q-V5-q1"
   | "q-V6-q1"
+  | "q-V7-q1"
   | "q-V8-q1"
+  | "q-T1-q1"
   | "q-T2-q1"
   | "q-T3-q1"
   | "q-T4-q1"
   | "q-T5-q1"
   | "q-T7-q1"
   | "q-T8-q1"
+  | "q-F1-q1"
   | "q-E1-q1"
   | "q-E2-q1"
   | "q-E3-q1"
+  | "q-E4-q1"
+  | "q-E5-q1"
   | "q-S1-q1"
   | "q-S2-q1"
   | "q-S3-q1"
-  | "q-E5-q1";
+  | "q-S4-q1";
 
 export type QuestionId = string;
 

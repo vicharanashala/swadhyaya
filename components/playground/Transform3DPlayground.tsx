@@ -5,6 +5,10 @@ import { Slider } from "./Slider";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import {
+  useWebGL,
+  CanvasLoadingWithRetry,
+} from "./_shared/CanvasFallback";
 
 // Concept: T2 (3D variant) — Drag a 3×3 matrix, watch a 3D house warp
 // The columns of the matrix ARE where the basis vectors (i, j, k) go.
@@ -201,6 +205,12 @@ export function Transform3DPlayground() {
     [],
   );
 
+  // Probe WebGL — if the GPU/hang scenario triggers, show the loading
+  // skeleton with a retry/escape so the student is never stuck.
+  const [webgl, retryWebGL] = useWebGL();
+  const [force2D, setForce2D] = useState(false);
+  const blocked = force2D || webgl.status === "fail";
+
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4">
       <div className="bg-card border border-line rounded-xl p-4">
@@ -217,7 +227,35 @@ export function Transform3DPlayground() {
             Show original (grey)
           </label>
         </div>
-        <div className="bg-canvas border border-line rounded h-[420px] overflow-hidden">
+        <div className="bg-canvas border border-line rounded h-[420px] overflow-hidden relative">
+          {webgl.status === "checking" ? (
+            <CanvasLoadingWithRetry
+              height={420}
+              onRetry={retryWebGL}
+              onForce2D={() => setForce2D(true)}
+            />
+          ) : blocked ? (
+            <div className="flex h-full items-center justify-center text-center px-6">
+              <div>
+                <div className="text-xs text-dim mb-1">
+                  3D view unavailable
+                </div>
+                <div className="text-[10px] text-faint font-mono">
+                  {webgl.status === "fail" ? webgl.reason : "—"}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForce2D(false);
+                    retryWebGL();
+                  }}
+                  className="mt-3 text-xs px-3 py-1.5 rounded border border-line bg-elev hover:bg-elev/70 text-ink transition"
+                >
+                  Try 3D again
+                </button>
+              </div>
+            </div>
+          ) : (
           <Canvas camera={{ position: [4, 3, 5], fov: 50 }}>
             <ambientLight intensity={0.5} />
             <directionalLight position={[5, 5, 5]} intensity={0.8} />
@@ -240,6 +278,7 @@ export function Transform3DPlayground() {
               maxDistance={12}
             />
           </Canvas>
+          )}
         </div>
       </div>
 

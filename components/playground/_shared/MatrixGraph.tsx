@@ -22,13 +22,16 @@ import { cn } from "@/lib/cn";
 
 const TICK_STEP = 1;
 const PAD = 24;
+// Mirrors the design tokens in `app/globals.css`. SVG attributes cannot
+// reference CSS variables, so we keep an explicit mirror here — kept in
+// sync with globals.css. Change both when the theme changes.
 const COLOR = {
-  ink: "#e7e0d4",
+  ink: "#ede8e3",
   dim: "#a89e94",
   faint: "#6b6058",
   line: "#3a3530",
   accent: "#e8864a",
-  warn: "#ffcc66",
+  warn: "#f0a050",
   good: "#5cb87a",
   v1: "#e8864a",
   v2: "#6db3ff",

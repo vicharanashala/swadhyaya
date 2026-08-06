@@ -19,8 +19,8 @@ import {
 } from "lucide-react";
 import {
   useWebGL,
-  CanvasLoadingSkeleton,
   Canvas2DFallback,
+  CanvasLoadingWithRetry,
 } from "./_shared/CanvasFallback";
 import {
   PlaneStripesGraph,
@@ -457,8 +457,13 @@ const onSliderChange = () => setPresetId("custom");
   // WebGL probe — run once on mount. If WebGL fails we render the
   // 2D fallback in place of the <Canvas>. The student can also
   // toggle the stripes graph manually with the toggle button.
-  const webgl = useWebGL();
-  const use2D = webgl.status === "fail";
+  const [webgl, retryWebGL] = useWebGL();
+  // `force2D` lets the user manually abandon the 3D attempt if the
+  // probe hangs longer than the timeout (a GPU under contention can
+  // stall the synchronous probe for many seconds). Once set, the
+  // 2D fallback is rendered regardless of the probe outcome.
+  const [force2D, setForce2D] = useState(false);
+  const use2D = force2D || webgl.status === "fail";
   const solutionLabel =
     solution.type === "unique"
       ? `unique: (${solution.sol.map((s) => s.toFixed(2)).join(", ")})`
@@ -623,7 +628,11 @@ const onSliderChange = () => setPresetId("custom");
           ) : (
             <div className="bg-canvas border border-line rounded-lg h-[460px] overflow-hidden relative">
               {webgl.status === "checking" ? (
-                <CanvasLoadingSkeleton height={460} />
+                <CanvasLoadingWithRetry
+                  height={460}
+                  onRetry={retryWebGL}
+                  onForce2D={() => setForce2D(true)}
+                />
               ) : use2D ? (
                 <Canvas2DFallback
                   rows={rows}
