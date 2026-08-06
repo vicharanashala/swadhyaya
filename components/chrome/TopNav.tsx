@@ -5,6 +5,7 @@ import { Flame, Layers } from "lucide-react";
 import { useProgress, levelFromXP, xpForLevel, xpForNextLevel, MAX_XP } from "@/lib/progress";
 import { AuthButton } from "./AuthButton";
 import { CONCEPTS } from "@/lib/curriculum";
+import { ProctorLiveBadge } from "@/components/proctor/ProctorLiveBadge";
 
 export function TopNav() {
   // Three primitive subscriptions. Avoid object selectors in Zustand v5 —
@@ -27,6 +28,12 @@ export function TopNav() {
     { href: "/learn", label: "Map" },
     { href: "/leaderboard", label: "Progress" },
     { href: "/about", label: "Credits" },
+    // Proctoring admin link — only mounts when the deployment opts in
+    // via NEXT_PUBLIC_PROCTORING=1. Kept here so admins have a stable
+    // URL from the global chrome without polluting the user nav.
+    ...(process.env.NEXT_PUBLIC_PROCTORING === "1"
+      ? [{ href: "/admin/proctor", label: "Proctoring" }]
+      : []),
   ];
 
   return (
@@ -103,6 +110,8 @@ export function TopNav() {
             <Flame size={14} className="text-warn" aria-hidden="true" />
             <span className="font-mono text-ink">{streak}</span>
           </div>
+
+          <ProctorLiveBadge />
 
           <AuthButton />
         </div>

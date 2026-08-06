@@ -5,6 +5,8 @@ import { TopNav } from "@/components/chrome/TopNav";
 import { SideRail } from "@/components/chrome/SideRail";
 import { MobileNav } from "@/components/chrome/MobileNav";
 import { A11ySettings } from "@/components/chrome/A11ySettings";
+import { GlobalProctorBanner } from "@/components/proctor/GlobalProctorBanner";
+import { SiteProctorController } from "@/components/proctor/SiteProctorController";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -128,6 +130,8 @@ export default function RootLayout({
         </div>
         <MobileNav />
         <A11ySettings />
+        <SiteProctorController />
+        <GlobalProctorBanner />
       </body>
     </html>
   );
