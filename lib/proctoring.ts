@@ -24,13 +24,16 @@ export type ViolationType =
   | "paste"           // paste attempt
   | "cut"             // cut attempt
   | "devtools_open"   // devtools detected by debugger timing
-  | "long_idle";      // no input for > 5 min during the attempt
+  | "long_idle"       // no input for > 5 min during the attempt
+  | "no_face"         // webcam captured no skin-tone pixels
+  | "multiple_faces"; // skin-tone ratio indicates >1 face in frame
 
 export interface Violation {
   id: string;
   attemptId: string;
   type: ViolationType;
   timestamp: number;
+  severity: number;
   // For focus_loss events: how long the window was unfocused, ms.
   durationMs?: number;
   context?: string;
@@ -303,6 +306,7 @@ export function heartbeat(id: string): void {
 // duration / context. Timestamp is stamped fresh.
 export interface ViolationInput {
   type: ViolationType;
+  severity?: number;
   durationMs?: number;
   context?: string;
 }
@@ -320,6 +324,7 @@ export function logViolation(
     attemptId,
     timestamp: Date.now(),
     ...v,
+    severity: v.severity ?? 1,
   };
   const updated: Attempt = {
     ...a,
@@ -361,4 +366,6 @@ export const VIOLATION_LABEL: Record<ViolationType, string> = {
   cut: "Cut attempt",
   devtools_open: "DevTools likely open",
   long_idle: "Idle for 5+ minutes",
+  no_face: "No face in frame",
+  multiple_faces: "Multiple people in frame",
 };

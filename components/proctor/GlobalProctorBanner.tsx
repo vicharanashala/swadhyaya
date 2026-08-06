@@ -1,29 +1,23 @@
 "use client";
 
-// GlobalProctorBanner — first-visit-popup that surfaces the proctoring
-// opt-in globally, exactly once per browser. Models Vibe's behaviour
-// where the proctored-quiz system is announced clearly to the learner
-// the first time they land on the platform.
+// GlobalProctorBanner — first-visit pop-up + bottom-left preference pill.
+// Lifted the consent UX from a one-click inline card to Vibe's
+// `EthicsConsentModal` flow — scroll-to-accept, webcam + audio
+// disclosure, clear opt-in/out semantics.
 //
 // Two-state UX:
-//   • First visit  → a centered modal popup asking the student to
-//                    acknowledge proctoring is available, and to
-//                    decide a default (always opt-in / always skip /
-//                    ask me each time).
-//   • Every visit  → a thin bottom-left pill reminding the learner
-//                    that proctoring is enabled on this deployment
-//                    and showing the current per-session default.
-//
-// The default-preference is stored as `swadhyaya-proctoring-default`
-// in localStorage with one of:
-//   • "always"      — open the Test tab directly into a proctored
-//                      attempt with no popup
-//   • "never"       — never open a proctored attempt; the Test tab
-//                      proceeds without any monitoring
-//   • "ask"         — show the per-test ProctorConsentModal every time
-//                      (the default for first-time visitors)
-//
-// If the env var isn't on, the banner becomes invisible.
+//   • First visit  → EthicsConsentModal asks for an explicit
+//                    consent with full disclosure. Accept writes a
+//                    consent flag AND the chosen preference to
+//                    localStorage; Decline just records "no consent"
+//                    so we don't ask twice.
+//   • Every visit  → small floating pill in the bottom-left with
+//                    quick toggles (always / ask / never). Click →
+//                    popover with the same three states.
+//   • When a live session is active (ethics consented + pref =
+//     "always"), the SiteProctorController renders the actual
+//     webcam preview via ProctorFloatingPanel. The pill stays
+//     visible but more subdued.
 
 import { useEffect, useState } from "react";
 import {
@@ -38,13 +32,20 @@ import { cn } from "@/lib/cn";
 import {
   endSiteSession,
   getOrCreateSiteSession,
+  isProctoringEnabled,
 } from "@/lib/proctoring";
+import {
+  acceptSiteProctoring,
+  declineSiteProctoring,
+} from "./SiteProctorController";
+import { EthicsConsentModal } from "./EthicsConsentModal";
 
 type DefaultPref = "ask" | "always" | "never";
 
 const STORE = {
   seen: "swadhyaya-proctoring-seen",
   default: "swadhyaya-proctoring-default",
+  consent: "swadhyaya-proctoring-consent",
 };
 
 function readPref(): DefaultPref {
@@ -62,7 +63,7 @@ function writePref(p: DefaultPref) {
   try {
     window.localStorage.setItem(STORE.default, p);
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
@@ -80,7 +81,7 @@ function markSeen() {
   try {
     window.localStorage.setItem(STORE.seen, "1");
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
@@ -89,55 +90,94 @@ export function GlobalProctorBanner() {
   const [open, setOpen] = useState(false); // first-visit modal
   const [pillOpen, setPillOpen] = useState(false); // settings popover
   const [pref, setPref] = useState<DefaultPref>("ask");
+  const [consented, setConsented] = useState(false);
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    setEnabled(process.env.NEXT_PUBLIC_PROCTORING === "1");
+    setEnabled(isProctoringEnabled());
     const prefValue = readPref();
+    const consentValue = (() => {
+      try {
+        return window.localStorage.getItem(STORE.consent) === "1";
+      } catch {
+        return false;
+      }
+    })();
     const seen = readSeen();
     setPref(prefValue);
-    // Show the modal ONLY on the first visit and only when the user
-    // hasn't yet committed to a default. After that, they get the
-    // small pill on every page; never the full modal again.
-    if (!seen && prefValue === "ask") setOpen(true);
+    setConsented(consentValue);
+    // First-visit modal shows only if we haven't asked yet, OR if the
+    // student visited but never picked a default.
+    if ((!seen || (seen && !consentValue && prefValue === "ask"))) {
+      setOpen(true);
+    }
   }, []);
 
   if (!mounted) return null;
   if (!enabled) return null;
 
-  const accept = (next: DefaultPref) => {
-    setPref(next);
-    writePref(next);
-    markSeen();
-    // Manage the sticky site session so the data flows into the admin
-    // dashboard immediately.
-    if (next === "always") {
-      getOrCreateSiteSession();
-    } else if (next === "never") {
-      endSiteSession("completed");
-    }
-    // Broadcast so any other open components (TopNav badge, SiteProctorController)
-    // pick up the change without a reload.
-    window.dispatchEvent(
-      new CustomEvent("swadhyaya:proctor-pref-update", {
-        detail: { pref: next },
-      }),
-    );
+  // Ethics-consent path — student accepts → enable site proctoring,
+  // drop session attempt in place, broadcast the change.
+  const onAccept = () => {
     setOpen(false);
+    markSeen();
+    acceptSiteProctoring();
+    setConsented(true);
+    // Default is the existing pref (probably "always" once they accept).
+    if (readPref() === "always") {
+      getOrCreateSiteSession();
+    }
+  };
+  const onDecline = () => {
+    setOpen(false);
+    markSeen();
+    declineSiteProctoring();
+    writePref("never");
+    setPref("never");
+    setConsented(false);
+  };
+
+  // Skip entirely: just close the modal without recording.
+  const onSkip = () => {
+    setOpen(false);
+    markSeen();
   };
 
   if (open) {
-    return <FirstVisitModal pref={pref} onAccept={accept} />;
+    return (
+      <EthicsConsentModal
+        isOpen
+        onAccept={onAccept}
+        onDecline={onDecline}
+      />
+    );
   }
 
   return (
     <Pill
       pref={pref}
+      consented={consented}
       onChange={(p) => {
         setPref(p);
         writePref(p);
+        if (p === "always") {
+          getOrCreateSiteSession();
+        } else if (p === "never") {
+          endSiteSession("completed");
+        } else if (p === "ask") {
+          endSiteSession("completed");
+        }
+        window.dispatchEvent(
+          new CustomEvent("swadhyaya:proctor-pref-update", {
+            detail: { pref: p },
+          }),
+        );
         setPillOpen(false);
+      }}
+      onAskAgain={() => {
+        setPillOpen(false);
+        setOpen(true);
       }}
       expanded={pillOpen}
       setExpanded={setPillOpen}
@@ -145,193 +185,31 @@ export function GlobalProctorBanner() {
   );
 }
 
-function FirstVisitModal({
-  pref,
-  onAccept,
-}: {
-  pref: DefaultPref;
-  onAccept: (p: DefaultPref) => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="global-proctor-title"
-      aria-describedby="global-proctor-body"
-      onClick={(e) => {
-        // Backdrop click — show a confirm-discard hint by clicking the
-        // dismiss button below rather than silent-close.
-        if (e.target === e.currentTarget) {
-          // nudge: nothing breaks; pill state handles itself
-        }
-      }}
-      className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 animate-[a11y-fade_180ms_ease]"
-    >
-      <div className="w-full max-w-md bg-card border border-line rounded-2xl shadow-[0_24px_64px_rgba(0,0,0,0.55)] overflow-hidden animate-[a11y-slide_200ms_ease]">
-        <div className="px-6 pt-5 pb-3 border-b border-line flex items-start gap-3">
-          <div className="shrink-0 w-10 h-10 rounded-full bg-accent/15 border border-accent/40 flex items-center justify-center">
-            <ShieldCheck size={20} className="text-accent" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <h2
-              id="global-proctor-title"
-              className="font-serif text-lg text-ink leading-tight"
-            >
-              Proctoring is available on this site
-            </h2>
-            <p
-              id="global-proctor-body"
-              className="text-xs text-faint mt-0.5"
-            >
-              One-time setup. You can change the default at any time
-              from the badge in the bottom-left.
-            </p>
-          </div>
-        </div>
-
-        <div className="px-6 py-4 space-y-3 text-sm text-dim leading-relaxed">
-          <p>
-            When you open the <strong className="text-ink">Test</strong>{" "}
-            tab of any concept, you can choose to take it{" "}
-            <strong className="text-ink">with proctoring on</strong>. Proctoring
-            tracks window focus, copy/paste, idle time, and (best effort)
-            devtools — nothing more.
-          </p>
-
-          <div className="grid gap-2">
-            <PrefRow
-              active={pref === "ask"}
-              onClick={() => onAccept("ask")}
-              icon={<Eye size={14} aria-hidden="true" />}
-              label="Ask me each time"
-              hint="Show the consent modal every time I open the Test tab."
-            />
-            <PrefRow
-              active={pref === "always"}
-              onClick={() => onAccept("always")}
-              icon={<ShieldCheck size={14} aria-hidden="true" />}
-              label="Always proctor (default on)"
-              hint="Skip the per-test consent — every Test tab opens proctored."
-              accent
-            />
-            <PrefRow
-              active={pref === "never"}
-              onClick={() => onAccept("never")}
-              icon={<ShieldAlert size={14} aria-hidden="true" />}
-              label="Skip proctoring"
-              hint="Never proctor my attempts — the consent modal won't appear."
-            />
-          </div>
-
-          <p className="text-[11px] text-faint border-t border-line pt-3">
-            Tip: you can change this default any time from the small badge
-            in the bottom-left corner of every page.
-          </p>
-        </div>
-
-        <div className="px-6 py-3 border-t border-line bg-elev/30 flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => onAccept(pref || "ask")}
-            className="text-xs text-dim hover:text-ink underline-offset-2 hover:underline"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PrefRow({
-  active,
-  onClick,
-  icon,
-  label,
-  hint,
-  accent,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  hint: string;
-  accent?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "flex items-start gap-3 w-full text-left rounded-lg p-2.5 border transition",
-        active
-          ? accent
-            ? "border-accent/60 bg-accent/15"
-            : "border-line bg-elev/60"
-          : "border-line/50 bg-canvas/30 hover:bg-elev/40",
-      )}
-    >
-      <div
-        className={cn(
-          "shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
-          active
-            ? accent
-              ? "bg-accent text-canvas"
-              : "bg-ink text-canvas"
-            : "bg-canvas text-faint border border-line",
-        )}
-      >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="text-xs font-medium text-ink">{label}</div>
-        <div className="text-[11px] text-faint leading-snug mt-0.5">
-          {hint}
-        </div>
-      </div>
-    </button>
-  );
-}
-
 function Pill({
   pref,
+  consented,
   onChange,
+  onAskAgain,
   expanded,
   setExpanded,
 }: {
   pref: DefaultPref;
+  consented: boolean;
   onChange: (p: DefaultPref) => void;
+  onAskAgain: () => void;
   expanded: boolean;
   setExpanded: (v: boolean) => void;
 }) {
-  const handleChange = (p: DefaultPref) => {
-    onChange(p);
-    // Manage the sticky site session so we don't leave it dangling
-    // when the user flips the default off mid-session.
-    if (p === "always") {
-      getOrCreateSiteSession();
-    } else if (p === "never") {
-      endSiteSession("completed");
-    } else if (p === "ask") {
-      // "Ask" leaves the site session in whatever state it had —
-      // usually "completed" if it was running. Drop it.
-      endSiteSession("completed");
-    }
-    window.dispatchEvent(
-      new CustomEvent("swadhyaya:proctor-pref-update", {
-        detail: { pref: p },
-      }),
-    );
-    setExpanded(false);
-  };
-
-  const label =
-    pref === "always"
-      ? "Proctoring ON by default"
+  // If the user has consented + "always", show a quiet badge — the
+  // ProctorFloatingPanel does the heavy lifting visually now.
+  const liveActive = pref === "always" && consented;
+  const label = liveActive
+    ? "Proctoring active"
+    : pref === "always"
+      ? "Proctoring ready"
       : pref === "never"
-        ? "Proctoring OFF by default"
-        : "Proctoring — ask each time";
+        ? "Proctoring off"
+        : "Proctoring paused";
   const Icon =
     pref === "always" ? ShieldCheck : pref === "never" ? ShieldAlert : Eye;
 
@@ -359,13 +237,13 @@ function Pill({
                 {
                   p: "always",
                   label: "Always ON",
-                  hint: "Proctor every attempt",
+                  hint: "Proctor every moment",
                   Icon: ShieldCheck,
                 },
                 {
                   p: "ask",
                   label: "Ask each time",
-                  hint: "Show consent on Test tab",
+                  hint: "Show consent modal",
                   Icon: Eye,
                 },
                 {
@@ -379,7 +257,7 @@ function Pill({
               <button
                 key={p}
                 type="button"
-                onClick={() => handleChange(p)}
+                onClick={() => onChange(p)}
                 aria-pressed={pref === p}
                 className={cn(
                   "flex items-center gap-2.5 w-full text-left rounded p-2 transition",
@@ -400,7 +278,14 @@ function Pill({
               </button>
             ))}
           </div>
-          <div className="px-3 py-2 border-t border-line bg-elev/20">
+          <div className="px-3 py-2 border-t border-line bg-elev/20 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onAskAgain}
+              className="text-[10px] text-faint hover:text-ink"
+            >
+              Re-read consent
+            </button>
             <a
               href="/admin/proctor"
               className="text-[10px] text-accent hover:underline"
@@ -419,8 +304,8 @@ function Pill({
         className={cn(
           "inline-flex items-center gap-1.5 px-3 py-2 rounded-full border backdrop-blur",
           "text-[11px] font-medium shadow-[0_4px_14px_rgba(0,0,0,0.3)] transition",
-          pref === "always"
-            ? "bg-accent/15 border-accent/40 text-accent hover:bg-accent/25"
+          liveActive
+            ? "bg-correct/10 border-correct/40 text-correct hover:bg-correct/15"
             : pref === "never"
               ? "bg-elev/70 border-line text-dim hover:text-ink"
               : "bg-card/90 border-line text-ink hover:bg-card",
@@ -433,6 +318,9 @@ function Pill({
           <Icon size={11} aria-hidden="true" />
         )}
         <span>{label}</span>
+        {liveActive && (
+          <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-correct animate-pulse" />
+        )}
       </button>
     </div>
   );
