@@ -12,33 +12,40 @@
 //   3. Mounts the original useProctor hook for the standard listeners
 //      (focus / tab / right-click / copy / paste / cut / devtools).
 //   4. Mounts useFaceDetection which streams face-presence anomalies
-//      into the same violation log.
+//      into the same violation log + captures a snapshot for each
+//      face-presence violation so the admin can see what the
+//      camera saw.
 //   5. Renders the floating webcam panel — the "photo" the user
 //      wants to see — so the student always has a transparent view
 //      of what the system sees.
-//   6. Captures screenshots on face-presence anomalies and stores
-//      them as a small `evidence` data URL alongside the violation.
+//   6. Surfaces the latest face-presence anomaly through the
+//      Vibe-style full-screen ProctorAlertOverlay so the student
+//      sees the same alert Vibe shows.
 //
 // User can accept the ethics consent by clicking "I Accept" in the
 // GlobalProctorBanner first-visit modal. The banner also requests
 // the camera so that permission shows up at the moment of consent.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   attemptDuration,
   endSiteSession,
   getOrCreateSiteSession,
-  heartbeat,
   type Attempt,
   isProctoringEnabled,
   listAttempts,
   logViolation,
   type ViolationInput,
+  type Violation,
 } from "@/lib/proctoring";
 import { useCamera } from "./useCamera";
 import { useFaceDetection } from "./useFaceDetection";
 import { useProctor } from "./useProctor";
 import { ProctorFloatingPanel } from "./ProctorFloatingPanel";
+import {
+  VibeStyleAnomalyOverlay,
+  deriveActiveAnomaly,
+} from "./VibeStyleAnomalyOverlay";
 import { ShieldCheck } from "lucide-react";
 
 const PREF_KEY = "swadhyaya-proctoring-default";
@@ -155,13 +162,18 @@ export function SiteProctorController() {
         (v) => v.type === anomaly.type && Date.now() - v.timestamp < 5000,
       );
       if (recent) return;
-      const captureFrame = camera.captureFrame();
+      // Capture a JPEG snapshot of what the camera saw — persisted
+      // alongside the violation in localStorage so the admin can
+      // see what triggered the alert (will be uploaded to a server
+      // later via /api/proctor/evidence).
+      const snapshot = camera.captureFrame();
       const input: ViolationInput = {
         type: anomaly.type,
         severity: anomaly.severity,
-        context: captureFrame
-          ? `snapshot captured (${captureFrame.length} chars)`
+        context: snapshot
+          ? `snapshot captured (${snapshot.length} chars)`
           : "no camera frame",
+        snapshot: snapshot ?? undefined,
       };
       logViolation(attempt.id, input);
       refreshAttempt();
@@ -191,22 +203,34 @@ export function SiteProctorController() {
     };
   }, [enabled]);
 
+  // Derive the "current anomaly" for the Vibe-style overlay — the
+  // most recent face-presence violation (no_face / multiple_faces)
+  // within the last 5 seconds. Older violations are dismissed.
+  // Keep BEFORE the early return so React's rules-of-hooks stay sane.
+  const activeAnomaly = useMemo(
+    () => (attempt ? deriveActiveAnomaly(attempt.violations, 5000) : null),
+    [attempt],
+  );
+
   if (!mounted) return null;
   if (!enabled || !attempt) return null;
 
   return (
-    <ProctorFloatingPanel
-      attempt={attempt}
-      videoRef={camera.videoRef}
-      cameraRunning={camera.isRunning}
-      cameraError={camera.error}
-      faceCount={faceCount}
-      // Tell the global banner we have a live session so the badge
-      // shows the green chip instead of the "always ON by default" pill.
-      onCollapseChange={() => {
-        /* noop for now */
-      }}
-    />
+    <>
+      <ProctorFloatingPanel
+        attempt={attempt}
+        videoRef={camera.videoRef}
+        cameraRunning={camera.isRunning}
+        cameraError={camera.error}
+        faceCount={faceCount}
+      />
+      <VibeStyleAnomalyOverlay
+        violation={activeAnomaly}
+        videoRef={camera.videoRef}
+        cameraRunning={camera.isRunning}
+        faceCount={faceCount}
+      />
+    </>
   );
 }
 

@@ -26,7 +26,11 @@ export type ViolationType =
   | "devtools_open"   // devtools detected by debugger timing
   | "long_idle"       // no input for > 5 min during the attempt
   | "no_face"         // webcam captured no skin-tone pixels
-  | "multiple_faces"; // skin-tone ratio indicates >1 face in frame
+  | "multiple_faces"  // skin-tone ratio indicates >1 face in frame
+  | "blur_detected"   // camera frame too blurry
+  | "voice_detected"  // audio level too high (voice activity)
+  | "motion_detected" // scene change detected
+  | "camera_blocked"; // camera stopped or covered
 
 export interface Violation {
   id: string;
@@ -37,6 +41,11 @@ export interface Violation {
   // For focus_loss events: how long the window was unfocused, ms.
   durationMs?: number;
   context?: string;
+  // Small JPEG snapshot captured at the moment of the violation
+  // (~5–15 KB each, stored in localStorage — wire to a server later
+  // via /api/proctor/evidence). Face-presence violations use this
+  // as evidence so the admin can see what the camera saw.
+  snapshot?: string;
 }
 
 export type AttemptStatus =
@@ -309,6 +318,10 @@ export interface ViolationInput {
   severity?: number;
   durationMs?: number;
   context?: string;
+  /** Optional JPEG data-URL snapshot of the camera at the moment
+   *  of the anomaly. Persisted into localStorage so the admin can
+   *  see what the camera saw (will move to server upload later). */
+  snapshot?: string;
 }
 
 export function logViolation(
@@ -368,4 +381,8 @@ export const VIOLATION_LABEL: Record<ViolationType, string> = {
   long_idle: "Idle for 5+ minutes",
   no_face: "No face in frame",
   multiple_faces: "Multiple people in frame",
+  blur_detected: "Camera feed too blurry",
+  voice_detected: "Background voice detected",
+  motion_detected: "Sudden scene change",
+  camera_blocked: "Camera blocked or covered",
 };

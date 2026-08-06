@@ -24,10 +24,12 @@ import {
 } from "@/lib/proctoring";
 import {
   Activity,
+  Camera,
   CheckCircle2,
   Clock3,
   EyeOff,
   Filter,
+  Image as ImageIcon,
   ShieldAlert,
   ShieldCheck,
   XCircle,
@@ -417,32 +419,44 @@ function RowExpandable({
                     <p className="mt-1 text-correct">Clean run.</p>
                   </div>
                 ) : (
-                  <ol className="bg-canvas border border-line rounded p-2 max-h-60 overflow-y-auto space-y-1">
-                    {[...a.violations].reverse().map((v) => (
-                      <li
-                        key={v.id}
-                        className="text-[11px] flex items-start gap-2 px-1"
-                      >
-                        <span className="font-mono text-faint tabular-nums shrink-0">
-                          {new Date(v.timestamp).toLocaleTimeString()}
-                        </span>
-                        <span className="text-warn inline-flex items-center gap-1 shrink-0">
-                          <XCircle size={10} aria-hidden="true" />
-                          {VIOLATION_LABEL[v.type]}
-                        </span>
-                        {typeof v.durationMs === "number" && v.durationMs > 0 && (
-                          <span className="text-faint font-mono">
-                            {fmtDuration(v.durationMs)}
+                  <>
+                    <ol className="bg-canvas border border-line rounded p-2 max-h-48 overflow-y-auto space-y-1">
+                      {[...a.violations].reverse().map((v) => (
+                        <li
+                          key={v.id}
+                          className="text-[11px] flex items-start gap-2 px-1"
+                        >
+                          <span className="font-mono text-faint tabular-nums shrink-0">
+                            {new Date(v.timestamp).toLocaleTimeString()}
                           </span>
-                        )}
-                        {v.context && (
-                          <span className="text-dim truncate">
-                            {v.context}
+                          <span className="text-warn inline-flex items-center gap-1 shrink-0">
+                            <XCircle size={10} aria-hidden="true" />
+                            {VIOLATION_LABEL[v.type]}
                           </span>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
+                          {typeof v.durationMs === "number" && v.durationMs > 0 && (
+                            <span className="text-faint font-mono">
+                              {fmtDuration(v.durationMs)}
+                            </span>
+                          )}
+                          {v.snapshot && (
+                            <Camera
+                              size={10}
+                              className="text-accent"
+                              aria-label="snapshot available"
+                            />
+                          )}
+                          {v.context && (
+                            <span className="text-dim truncate">
+                              {v.context}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                    {a.violations.some((v) => v.snapshot) && (
+                      <SnapshotGrid attempts={a} />
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -481,3 +495,68 @@ function computeKpis(attempts: Attempt[], now: number) {
 
 // Hint to the compiler this is the only JSX-root export (for tree-shaking in dev)
 void EyeOff; // (kept around in case we want a disabled-banner variant)
+
+// ───────────────────────────────────────────────────────────────────────
+// Snapshot grid — opens a lightbox with full resolution when clicked.
+// Will move to a server `/api/proctor/evidence/:id` endpoint later;
+// for now we render the data URL directly from localStorage.
+// ───────────────────────────────────────────────────────────────────────
+function SnapshotGrid({ attempts }: { attempts: import("@/lib/proctoring").Attempt }) {
+  // Always call hooks at the top — no early return before `useState`.
+  const [zoom, setZoom] = useState<string | null>(null);
+  const snapshots = attempts.violations.filter((v) => v.snapshot);
+  if (snapshots.length === 0) return null;
+  return (
+    <>
+      <div className="mt-3">
+        <div className="text-[10px] uppercase tracking-wider text-faint mb-1 inline-flex items-center gap-1">
+          <ImageIcon size={11} aria-hidden="true" />
+          Captured snapshots ({snapshots.length})
+        </div>
+        <div className="grid grid-cols-4 gap-1">
+          {snapshots.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => v.snapshot && setZoom(v.snapshot)}
+              aria-label={`Snapshot at ${new Date(v.timestamp).toLocaleTimeString()} — ${VIOLATION_LABEL[v.type]}`}
+              className="relative aspect-video bg-canvas border border-line rounded overflow-hidden hover:border-accent/50 transition"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={v.snapshot!}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+              <span className="absolute bottom-1 left-1 text-[9px] px-1 py-0.5 rounded bg-canvas/85 text-faint font-mono">
+                {VIOLATION_LABEL[v.type]}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {zoom && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setZoom(null)}
+          className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div className="max-w-3xl w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoom}
+              alt="Snapshot full resolution"
+              className="w-full h-auto rounded-lg shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
+            />
+            <p className="mt-3 text-center text-[11px] text-faint">
+              Click anywhere to close. Snapshots stay in your browser
+              until a server endpoint (`/api/proctor/evidence`) is
+              wired up — then they will sync to the admin dashboard.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
