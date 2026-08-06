@@ -1,0 +1,268 @@
+// Proctoring — types, persistence, helpers.
+//
+// Public surface lives behind a single env var:
+//
+//   NEXT_PUBLIC_PROCTORING=1   →  proctoring enabled for end users
+//                                (admin route becomes reachable, student
+//                                 panel mounts in every Test tab)
+//
+// When the env var is OFF, every public function returns its "no-op"
+// shape and the admin route renders a "Proctoring is disabled" page.
+// This makes proctoring opt-in by deployment, not by code-level flag.
+//
+// Storage: localStorage key `swadhyaya-proctoring`. We hold up to MAX_ATTEMPTS
+// kept attempts in store; older ones are pruned. Server persistence is
+// intentionally absent — swadhyaya is a static export; the admin dashboard
+// consumes the same localStorage so it can be served on a different
+// browser (e.g. a teacher's laptop) as long as the key is shared.
+
+export type ViolationType =
+  | "focus_loss"      // window/iframe lost focus
+  | "tab_switch"      // document.hidden flipped
+  | "right_click"     // contextmenu (attempt to suppress)
+  | "copy"            // copy attempt
+  | "paste"           // paste attempt
+  | "cut"             // cut attempt
+  | "devtools_open"   // devtools detected by debugger timing
+  | "long_idle";      // no input for > 5 min during the attempt
+
+export interface Violation {
+  id: string;
+  attemptId: string;
+  type: ViolationType;
+  timestamp: number;
+  // For focus_loss events: how long the window was unfocused, ms.
+  durationMs?: number;
+  context?: string;
+}
+
+export type AttemptStatus =
+  | "active"      // currently in the test tab
+  | "completed"   // reached threshold + submitted (honourable exit)
+  | "abandoned";  // user closed without finishing
+
+export interface Attempt {
+  id: string;
+  conceptId: string;
+  startedAt: number;
+  endedAt?: number;
+  status: AttemptStatus;
+  violationCount: number;
+  violations: Violation[];
+  // Heartbeat — bumped every ~10s while the attempt is active. The admin
+  // dashboard uses this to distinguish live sessions (> 30 s since last
+  // heartbeat) from ghost ones.
+  lastHeartbeatAt: number;
+  metadata: {
+    userAgent: string;
+    timezone: string;
+    screen: string;
+    language: string;
+  };
+  // Snapshot of the test outcome (when status === 'completed').
+  result?: {
+    score: number;
+    total: number;
+    passed: boolean;
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Persistence layer
+// ─────────────────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = "swadhyaya-proctoring";
+const MAX_ATTEMPTS_KEPT = 200; // attempts kept per browser
+const HEARTBEAT_INTERVAL_MS = 10_000;
+
+interface ProctorStore {
+  attempts: Record<string, Attempt>;
+}
+
+function isBrowser() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function loadStore(): ProctorStore {
+  if (!isBrowser()) return { attempts: {} };
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { attempts: {} };
+    const parsed = JSON.parse(raw) as Partial<ProctorStore>;
+    return { attempts: (parsed.attempts ?? {}) as Record<string, Attempt> };
+  } catch {
+    return { attempts: {} };
+  }
+}
+
+function saveStore(s: ProctorStore): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  } catch {
+    // localStorage may be disabled (private mode). Silently ignore.
+  }
+}
+
+export function uid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `a${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+}
+
+function readMeta(): Attempt["metadata"] {
+  if (!isBrowser()) {
+    return {
+      userAgent: "server",
+      timezone: "UTC",
+      screen: "0x0",
+      language: "en",
+    };
+  }
+  return {
+    userAgent: navigator.userAgent,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "unknown",
+    screen: `${window.screen.width}x${window.screen.height}`,
+    language: navigator.language,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────
+
+export function isProctoringEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_PROCTORING === "1";
+}
+
+export function startAttempt(conceptId: string): Attempt {
+  const store = loadStore();
+  const meta = readMeta();
+  const attempt: Attempt = {
+    id: uid(),
+    conceptId,
+    startedAt: Date.now(),
+    status: "active",
+    violationCount: 0,
+    violations: [],
+    lastHeartbeatAt: Date.now(),
+    metadata: meta,
+  };
+  store.attempts[attempt.id] = attempt;
+  pruneOldAttempts(store);
+  saveStore(store);
+  return attempt;
+}
+
+export function getAttempt(id: string): Attempt | null {
+  if (!id) return null;
+  return loadStore().attempts[id] ?? null;
+}
+
+export function listAttempts(): Attempt[] {
+  const store = loadStore();
+  return Object.values(store.attempts).sort((a, b) => b.startedAt - a.startedAt);
+}
+
+export function listActiveAttempts(): Attempt[] {
+  const now = Date.now();
+  return listAttempts().filter(
+    (a) =>
+      a.status === "active" && now - a.lastHeartbeatAt < 30_000,
+  );
+}
+
+export function endAttempt(
+  id: string,
+  status: AttemptStatus,
+  result?: Attempt["result"],
+): Attempt | null {
+  if (!id) return null;
+  const store = loadStore();
+  const a = store.attempts[id];
+  if (!a) return null;
+  const ended: Attempt = {
+    ...a,
+    status,
+    endedAt: Date.now(),
+    result,
+  };
+  store.attempts[id] = ended;
+  pruneOldAttempts(store);
+  saveStore(store);
+  return ended;
+}
+
+export function heartbeat(id: string): void {
+  if (!id) return;
+  const store = loadStore();
+  const a = store.attempts[id];
+  if (!a || a.status !== "active") return;
+  store.attempts[id] = { ...a, lastHeartbeatAt: Date.now() };
+  saveStore(store);
+}
+
+// Input the helper accepts — caller only names the type and any
+// duration / context. Timestamp is stamped fresh.
+export interface ViolationInput {
+  type: ViolationType;
+  durationMs?: number;
+  context?: string;
+}
+
+export function logViolation(
+  attemptId: string,
+  v: ViolationInput,
+): Violation | null {
+  if (!attemptId) return null;
+  const store = loadStore();
+  const a = store.attempts[attemptId];
+  if (!a || a.status !== "active") return null;
+  const violation: Violation = {
+    id: uid(),
+    attemptId,
+    timestamp: Date.now(),
+    ...v,
+  };
+  const updated: Attempt = {
+    ...a,
+    violationCount: a.violationCount + 1,
+    violations: [...a.violations, violation].slice(-50), // keep last 50
+  };
+  store.attempts[attemptId] = updated;
+  saveStore(store);
+  return violation;
+}
+
+export function attemptDuration(a: Attempt, now: number = Date.now()): number {
+  if (a.status === "completed" || a.status === "abandoned") {
+    return (a.endedAt ?? now) - a.startedAt;
+  }
+  return now - a.startedAt;
+}
+
+// Older attempts get pruned — keep the most recent MAX_ATTEMPTS_KEPT.
+function pruneOldAttempts(store: ProctorStore): void {
+  const entries = Object.entries(store.attempts);
+  if (entries.length <= MAX_ATTEMPTS_KEPT) return;
+  entries
+    .sort(([, a], [, b]) => a.startedAt - b.startedAt)
+    .slice(0, entries.length - MAX_ATTEMPTS_KEPT)
+    .forEach(([id]) => delete store.attempts[id]);
+}
+
+export const HEARTBEAT_MS = HEARTBEAT_INTERVAL_MS;
+export const VIOLATION_CAP = 50; // max stored per attempt
+
+// Human-readable label for a ViolationType — used in the admin dashboard.
+export const VIOLATION_LABEL: Record<ViolationType, string> = {
+  focus_loss: "Window lost focus",
+  tab_switch: "Switched tabs / window",
+  right_click: "Right-click attempt",
+  copy: "Copy attempt",
+  paste: "Paste attempt",
+  cut: "Cut attempt",
+  devtools_open: "DevTools likely open",
+  long_idle: "Idle for 5+ minutes",
+};

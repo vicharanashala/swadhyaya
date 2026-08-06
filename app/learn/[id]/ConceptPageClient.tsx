@@ -18,6 +18,7 @@ import {
   ConceptCompletionCard,
   PASS_THRESHOLD,
 } from "@/components/chrome/ConceptCompletionCard";
+import { ProctorPanel } from "@/components/proctor/ProctorPanel";
 import { Lock, Check, Sparkles, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -234,6 +235,7 @@ export function ConceptPage({ id }: { id: ConceptId }) {
       {tab === "play" && <Playground id={concept.playground} />}
       {tab === "test" && (
         <TestTab
+          conceptId={concept.id}
           questions={questions}
           onPass={() => {
             complete(concept.id, concept.xp);
@@ -329,6 +331,7 @@ function StoryTab({ story }: { story: string }) {
 // Lives in ConceptCompletionCard (re-exported here for ergonomics).
 
 function TestTab({
+  conceptId,
   questions,
   onPass,
   alreadyDone,
@@ -337,6 +340,7 @@ function TestTab({
   onGoToNext,
   onRetake,
 }: {
+  conceptId: string;
   questions: Question[];
   onPass: () => void;
   alreadyDone: boolean;
@@ -357,6 +361,10 @@ function TestTab({
   const [correctMap, setCorrectMap] = useState<Record<string, boolean>>({});
   const [showHint, setShowHint] = useState<Record<string, boolean>>({});
   const [wrongAttempts, setWrongAttempts] = useState<Record<string, number>>({});
+
+  // Proctor wiring: attemptId is local to this TestTab lifetime; we
+  // hand it to the <ProctorPanel> which manages the rest via localStorage.
+  const [proctorAttemptId, setProctorAttemptId] = useState<string | null>(null);
 
   const correctCount = useMemo(
     () => Object.values(correctMap).filter(Boolean).length,
@@ -409,12 +417,32 @@ function TestTab({
     setCorrectMap({});
     setShowHint({});
     setWrongAttempts({});
+    setProctorAttemptId(null);
     onRetake();
   };
 
   return (
     <div className="grid md:grid-cols-[1fr_240px] gap-6">
-      <div>
+      <div className="space-y-4">
+        <ProctorPanel
+          conceptId={conceptId}
+          status={
+            finished ? "finished" : proctorAttemptId ? "running" : "idle"
+          }
+          result={
+            finished
+              ? {
+                  score: correctCount,
+                  total: questions.length,
+                  passed,
+                }
+              : undefined
+          }
+          onStart={(id) => setProctorAttemptId(id)}
+          onEnd={() => setProctorAttemptId(null)}
+          resumeAttemptId={proctorAttemptId}
+        />
+
         <QuestionCard
           question={q}
           index={idx}
