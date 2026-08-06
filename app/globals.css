@@ -95,6 +95,30 @@
   }
 }
 
+/* ── Accessibility preferences (Tenali-inspired) ───────────────────────
+   Persisted on <html> via data-* attributes by the global A11ySettings
+   panel. Applied as scoped overrides so the rest of the design system
+   stays intact. */
+html[data-a11y-dyslexia="true"] body,
+html[data-a11y-dyslexia="true"] input,
+html[data-a11y-dyslexia="true"] textarea,
+html[data-a11y-dyslexia="true"] select,
+html[data-a11y-dyslexia="true"] button {
+  font-family: var(--font-lexend), "OpenDyslexic", "Lexend", system-ui, sans-serif !important;
+}
+html[data-a11y-size="large"]    { font-size: 17px; }
+html[data-a11y-size="xl"]       { font-size: 19px; }
+html[data-a11y-spacing="true"] body,
+html[data-a11y-spacing="true"] p,
+html[data-a11y-spacing="true"] li,
+html[data-a11y-spacing="true"] label {
+  letter-spacing: 0.04em;
+  word-spacing: 0.1em;
+}
+html[data-a11y-contrast="high"] {
+  filter: contrast(1.35) saturate(1.1);
+}
+
 @layer utilities {
   .text-ink { color: var(--ink); }
   .text-ink-dim { color: var(--ink-dim); }
@@ -128,15 +152,28 @@
       linear-gradient(90deg, rgba(255, 245, 230, 0.025) 1px, transparent 1px);
     background-size: 32px 32px;
   }
-  .glow-accent {
-    box-shadow: 0 0 0 1px var(--accent), 0 0 24px -4px var(--accent);
+.glow-accent {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 24px -4px var(--accent);
+}
+.shadow-card {
+  box-shadow: var(--shadow-card);
+}
+.shadow-btn {
+  box-shadow: var(--shadow-btn);
+}
+
+/* Score ring — animates the dashed stroke on mount so the percentage
+   appears to "draw" itself in. Respects prefers-reduced-motion via the
+   global rule above. */
+.score-ring-progress {
+  animation: score-ring-fill 900ms cubic-bezier(0.16, 0.68, 0.32, 1) both;
+  transform-origin: center;
+}
+@keyframes score-ring-fill {
+  from {
+    stroke-dashoffset: 339.29;
   }
-  .shadow-card {
-    box-shadow: var(--shadow-card);
-  }
-  .shadow-btn {
-    box-shadow: var(--shadow-btn);
-  }
+}
   .skip-link {
     position: absolute;
     left: -9999px;

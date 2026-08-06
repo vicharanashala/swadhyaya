@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,9 +14,15 @@ import { QUESTIONS_BY_CONCEPT, type Question } from "@/lib/questions";
 import { Playground } from "@/components/playground/Playground";
 import { QuestionCard } from "@/components/question/QuestionCard";
 import { QuestionNav } from "@/components/question/QuestionNav";
-import { Lock, Check, Sparkles, ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
+import {
+  ConceptCompletionCard,
+  PASS_THRESHOLD,
+} from "@/components/chrome/ConceptCompletionCard";
+import { Lock, Check, Sparkles, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+// Themed confetti (warm-brown / orange / gold / cream) — matches the
+// SVG keyframes in ConceptCompletionCard's score ring.
 const fireConfetti = async () => {
   if (typeof window === "undefined") return;
   if (
@@ -27,10 +33,27 @@ const fireConfetti = async () => {
   }
   const mod = await import("canvas-confetti");
   mod.default({
-    particleCount: 60,
+    particleCount: 80,
     spread: 70,
-    origin: { y: 0.6 },
-    colors: ["#e8864a", "#5cb87a", "#6db3ff", "#c98aff", "#ffcc66"],
+    startVelocity: 35,
+    origin: { y: 0.55 },
+    colors: ["#e8864a", "#ff9800", "#ffb300", "#d27c3c", "#a16738", "#ede8e3"],
+    disableForReducedMotion: true,
+  });
+  mod.default({
+    particleCount: 40,
+    angle: 60,
+    spread: 55,
+    origin: { x: 0, y: 0.65 },
+    colors: ["#e8864a", "#ffb300", "#a16738"],
+    disableForReducedMotion: true,
+  });
+  mod.default({
+    particleCount: 40,
+    angle: 120,
+    spread: 55,
+    origin: { x: 1, y: 0.65 },
+    colors: ["#ff9800", "#d27c3c", "#ede8e3"],
     disableForReducedMotion: true,
   });
 };
@@ -303,7 +326,7 @@ function StoryTab({ story }: { story: string }) {
 
 // Minimum score to advance to the next story. Below this the student
 // must re-watch the story / play with the playground before retaking.
-const PASS_THRESHOLD = 0.7;
+// Lives in ConceptCompletionCard (re-exported here for ergonomics).
 
 function TestTab({
   questions,
@@ -410,152 +433,22 @@ function TestTab({
         />
 
         {finished && (
-          <div
-            className={cn(
-              "mt-6 rounded-2xl p-8 text-center transition",
-              passed
-                ? "bg-gradient-to-b from-accent/15 via-accent/10 to-card border border-accent/40 shadow-[0_0_24px_-12px_var(--accent)]"
-                : "bg-warn/10 border border-warn/40",
-            )}
-          >
-            <div
-              className={cn(
-                "inline-flex items-center justify-center w-12 h-12 rounded-full border",
-                passed
-                  ? "bg-accent/20 border-accent/40"
-                  : "bg-warn/20 border-warn/40",
-              )}
-            >
-              {passed ? (
-                <Sparkles
-                  size={22}
-                  className="text-accent"
-                  aria-hidden="true"
-                />
-              ) : (
-                <RotateCcw
-                  size={22}
-                  className="text-warn"
-                  aria-hidden="true"
-                />
-              )}
-            </div>
-
-            <h3 className="mt-3 font-serif text-2xl text-ink">
-              {passed
-                ? "Passed — locked in"
-                : "Below the 70% threshold"}
-            </h3>
-            <p className="text-sm text-dim mt-1">
-              You scored{" "}
-              <span
-                className={cn(
-                  "font-mono font-semibold",
-                  passed ? "text-accent" : "text-warn",
-                )}
-              >
-                {correctCount}/{questions.length}
-              </span>{" "}
-              ({Math.round(scorePct)}%) — need at least {needed}/{questions.length}{" "}
-              ({Math.round(PASS_THRESHOLD * 100)}%) to continue.
-            </p>
-
-            {passed && nextConcept && (
-              <div className="mt-5 mx-auto max-w-md">
-                <div className="text-[10px] text-faint uppercase tracking-widest mb-1.5">
-                  Next story
-                </div>
-                <div
-                  className="rounded-lg border border-line bg-card/60 px-4 py-3 text-left"
-                  aria-label="Next concept preview"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                      style={{
-                        background: `${PHASES.find((p) => p.id === nextConcept.phase)?.color ?? "#888"}20`,
-                        color:
-                          PHASES.find((p) => p.id === nextConcept.phase)?.color ??
-                          "#888",
-                      }}
-                    >
-                      {nextConcept.id}
-                    </span>
-                    <span className="text-[10px] text-faint">
-                      +{nextConcept.xp} XP
-                    </span>
-                    {!nextUnlocked && (
-                      <span className="ml-auto text-[10px] text-faint inline-flex items-center gap-1">
-                        <Lock size={10} aria-hidden="true" /> preview only
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm font-medium text-ink">
-                    {nextConcept.title}
-                  </div>
-                  <div className="text-xs text-dim mt-0.5">
-                    {nextConcept.short}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
-              {passed ? (
-                <>
-                  {nextConcept &&
-                    (alreadyDone ? (
-                      <Link
-                        href={`/learn/${nextConcept.id}`}
-                        className={cn(
-                          "px-6 py-3 rounded-lg font-semibold inline-flex items-center gap-2 transition text-base",
-                          nextUnlocked
-                            ? "bg-ink text-canvas hover:opacity-90 shadow-lg"
-                            : "border border-line bg-elev/40 text-dim hover:bg-elev",
-                        )}
-                      >
-                        {nextUnlocked
-                          ? "Continue to next story"
-                          : "Preview next story"}
-                        <ArrowRight size={16} aria-hidden="true" />
-                      </Link>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          onPass();
-                          onGoToNext();
-                        }}
-                        className="px-6 py-3 rounded-lg bg-ink text-canvas font-semibold inline-flex items-center gap-2 hover:opacity-90 transition text-base shadow-lg"
-                      >
-                        Continue to next story
-                        <ArrowRight size={16} aria-hidden="true" />
-                      </button>
-                    ))}
-                  <button
-                    onClick={onPass}
-                    disabled={alreadyDone}
-                    className="px-4 py-2 rounded text-xs border border-line/50 text-dim hover:bg-elev disabled:opacity-40"
-                  >
-                    {alreadyDone ? "Already locked in" : "Mark complete only"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={handleFullReset}
-                  className="px-6 py-3 rounded-lg bg-ink text-canvas font-semibold inline-flex items-center gap-2 hover:opacity-90 transition text-base shadow-lg"
-                >
-                  Re-study the story & retake the test
-                  <ArrowLeft size={16} aria-hidden="true" />
-                </button>
-              )}
-            </div>
-
-            {passed && !nextConcept && (
-              <p className="mt-4 text-xs text-accent font-medium">
-                You finished the entire curriculum. ✦
-              </p>
-            )}
-          </div>
+          <ConceptCompletionCard
+            correct={correctCount}
+            total={questions.length}
+            needed={needed}
+            passed={passed}
+            nextConcept={nextConcept}
+            nextUnlocked={nextUnlocked}
+            alreadyDone={alreadyDone}
+            onCelebrate={fireConfetti}
+            onContinue={() => {
+              onPass();
+              onGoToNext();
+            }}
+            onMarkCompleteOnly={onPass}
+            onRetake={handleFullReset}
+          />
         )}
       </div>
 

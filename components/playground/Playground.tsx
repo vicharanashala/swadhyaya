@@ -1,6 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { Loader } from "./_shared/Loader";
 import type { PlaygroundId } from "@/lib/curriculum";
 
 // All playground components are code-split so the initial JS payload
@@ -12,8 +13,8 @@ import type { PlaygroundId } from "@/lib/curriculum";
 // available on the server.
 
 const loading = (label = "Loading playground…") => (
-  <div className="bg-card border border-line rounded-xl p-8 text-center text-dim text-sm">
-    {label}
+  <div className="bg-card border border-line rounded-xl py-10 px-8 text-center">
+    <Loader label={label} />
   </div>
 );
 
