@@ -3,14 +3,20 @@
 // ProctorPanel — student-side proctoring affordance shown inside the
 // Test tab. Three modes:
 //
-//   • consent     — pre-attempt screen explaining what's monitored + ask
-//                   for an explicit Start click
+//   • consent     — centered modal popup asking the student to opt in
 //   • active      — compact status pill + collapsible violation log
 //   • finished    — summary card after the attempt ends (success / early)
 //                   with the full violation log
 //
-// Renders nothing on the server, and renders a "Proctoring is disabled"
-// notice if the env var is off.
+// Honors the global per-browser default preference stored in
+// localStorage under `swadhyaya-proctoring-default`:
+//
+//   • "always"  → skip the consent, jump straight into active mode
+//   • "never"   → render nothing (the test proceeds with no monitoring)
+//   • "ask"     → show the modal popup (default for first-time visitors)
+//
+// Renders a tiny "disabled on this deployment" notice when the env var
+// is off.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
@@ -34,6 +40,7 @@ import {
   VIOLATION_LABEL,
 } from "@/lib/proctoring";
 import { useProctor } from "./useProctor";
+import { ProctorConsentModal } from "./ProctorConsentModal";
 
 interface ProctorPanelProps {
   conceptId: string;
@@ -101,6 +108,32 @@ function ProctorBody({
   const [mode, setMode] = useState<Mode>("consent");
   const [showLog, setShowLog] = useState(false);
   const [, forceTick] = useState(0); // 1 Hz re-render for live timer
+
+  // Global per-browser default preference (set by GlobalProctorBanner).
+  // Read once on mount; if "always" jump straight to active, if "never"
+  // render nothing (skip proctoring entirely for this Test tab session).
+  const [pref, setPref] = useState<"ask" | "always" | "never">("ask");
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem("swadhyaya-proctoring-default");
+      const next: "ask" | "always" | "never" =
+        v === "always" || v === "never" ? v : "ask";
+      setPref(next);
+      if (next === "always") {
+        const a = startAttempt(conceptId);
+        setAttempt(a);
+        setMode("active");
+        setShowLog(false);
+        onStart?.(a.id);
+      } else if (next === "never") {
+        // Skip the consent entirely — student is opted-out at the site
+        // level. Just mark that the ProctorPanel is "done" (no attempt).
+      }
+    } catch {
+      // localStorage disabled — fall back to "ask".
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Resume on mount if a parent passed an attempt id.
   useEffect(() => {
@@ -171,8 +204,28 @@ function ProctorBody({
     setShowLog(false);
   };
 
+  if (pref === "never") {
+    // User opted out at the site level. Render nothing.
+    return null;
+  }
+
   if (mode === "consent") {
-    return <ConsentCard onStart={start} conceptId={conceptId} />;
+    // Vibe-style: a centered modal popup, not a passive inline card.
+    // The Test tab is hidden behind this modal until the student
+    // explicitly chooses to opt-in or skip.
+    //
+    // If the global preference was "ask" (still default after first
+    // visit), lock the consent in on tap so the next Test tab visit
+    // skips the modal entirely.
+    return (
+      <ProctorConsentModal
+        isOpen
+        conceptId={conceptId}
+        onConsent={start}
+        onSkip={reset}
+        lockInOnConsent={pref === "ask"}
+      />
+    );
   }
 
   if (mode === "finished" && attempt) {
@@ -199,72 +252,6 @@ function ProctorBody({
   }
 
   return null;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Consent
-// ─────────────────────────────────────────────────────────────────
-
-function ConsentCard({
-  onStart,
-  conceptId,
-}: {
-  onStart: () => void;
-  conceptId: string;
-}) {
-  return (
-    <div className="bg-card border border-accent/30 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <ShieldCheck size={16} className="text-accent" aria-hidden="true" />
-        <h3 className="text-sm font-medium text-ink">
-          Proctored attempt — opt-in
-        </h3>
-      </div>
-      <p className="mt-2 text-xs text-dim leading-relaxed">
-        You can take the test for <strong className="text-ink">{conceptId}</strong>{" "}
-        without proctoring, or with it. Proctoring is fully opt-in — we
-        never monitor unless you press Start below.
-      </p>
-      <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px] text-dim leading-relaxed">
-        <div className="rounded-lg bg-canvas border border-line/50 p-2.5">
-          <div className="text-faint uppercase tracking-wider text-[9px] mb-1">
-            What gets recorded
-          </div>
-          <ul className="list-disc list-inside space-y-1">
-            <li>Window/tab focus (when the page loses focus)</li>
-            <li>Right-click, copy, paste, cut</li>
-            <li>Idle time longer than 5 minutes</li>
-            <li>DevTools open (best-effort detection)</li>
-            <li>Test start/end time + duration</li>
-          </ul>
-        </div>
-        <div className="rounded-lg bg-canvas border border-line/50 p-2.5">
-          <div className="text-faint uppercase tracking-wider text-[9px] mb-1">
-            What is NOT recorded
-          </div>
-          <ul className="list-disc list-inside space-y-1">
-            <li>Camera / microphone (off by default)</li>
-            <li>Keystrokes or the answer you type</li>
-            <li>Screenshots or screen-recording</li>
-            <li>Any web activity outside this tab</li>
-            <li>Your identity — the data stays in your browser</li>
-          </ul>
-        </div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          onClick={onStart}
-          className="px-4 py-2 rounded bg-accent text-canvas font-medium inline-flex items-center gap-1.5 hover:bg-accent/90 transition"
-        >
-          <Play size={12} aria-hidden="true" />
-          Start proctored attempt
-        </button>
-        <span className="text-[10px] text-faint self-center">
-          or just keep going — the test works the same either way.
-        </span>
-      </div>
-    </div>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────
