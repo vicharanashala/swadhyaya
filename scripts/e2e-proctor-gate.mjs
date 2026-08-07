@@ -29,6 +29,7 @@ function check(name, pass, detail = "") {
 async function launch({ grant }) {
   const args = [
     "--use-fake-device-for-media-stream",
+    "--use-file-for-fake-video-capture=/tmp/proctor-noface.y4m",
     "--no-sandbox",
     // A tiny synthetic y4m would let us control content; the built-in
     // fake device is enough to make a face detector see *something*.

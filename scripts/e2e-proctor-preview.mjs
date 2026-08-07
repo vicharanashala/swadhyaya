@@ -18,6 +18,7 @@ const browser = await puppeteer.launch({
   headless: "new",
   args: [
     "--use-fake-device-for-media-stream",
+    "--use-file-for-fake-video-capture=/tmp/proctor-noface.y4m",
     "--use-fake-ui-for-media-stream",
     "--no-sandbox",
   ],
