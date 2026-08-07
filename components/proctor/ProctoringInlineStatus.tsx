@@ -8,8 +8,12 @@
 //
 // Renders nothing when:
 //   • Proctoring isn't enabled at the deployment level (env var off)
-//   • The user hasn't accepted the ethics consent yet
 //   • There's no live session (yet)
+//
+// There is no longer a consent check here. ProctorGate refuses to render
+// the app at all until the camera and microphone are live, so by the
+// time any page content exists the student is already being monitored —
+// a "not consented" branch would be dead code.
 //
 // Otherwise shows a slim pill: "Proctored · 0 violations · 5m 12s"
 // along with a pulsing dot. The user always sees, IN the content
@@ -24,8 +28,6 @@ import {
   type Attempt,
 } from "@/lib/proctoring";
 import { cn } from "@/lib/cn";
-
-const CONSENT_KEY = "swadhyaya-proctoring-consent";
 
 function fmt(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -52,20 +54,12 @@ export function ProctoringInlineStatus({
 }: ProctoringInlineStatusProps) {
   const [mounted, setMounted] = useState(false);
   const [session, setSession] = useState<Attempt | null>(null);
-  const [consented, setConsented] = useState(false);
   const [, forceTick] = useState(0);
 
   useEffect(() => {
     setMounted(true);
     if (!isProctoringEnabled()) return;
     const refresh = () => {
-      try {
-        setConsented(
-          window.localStorage.getItem(CONSENT_KEY) === "1",
-        );
-      } catch {
-        /* ignore */
-      }
       const sessions = listAttempts().filter(
         (a) => a.conceptId === "_session" && a.status === "active",
       );
@@ -73,31 +67,28 @@ export function ProctoringInlineStatus({
     };
     refresh();
     const t = window.setInterval(refresh, 2000);
+    // The old proctor-pref-update / proctor-consent events went away
+    // with the opt-in flow; the 2 s poll plus the storage event covers
+    // everything that can still change.
     const onStorage = (e: StorageEvent) => {
       if (e.key === "swadhyaya-proctoring") refresh();
     };
-    const onUpdate = () => refresh();
     window.addEventListener("storage", onStorage);
-    window.addEventListener("swadhyaya:proctor-pref-update", onUpdate);
-    window.addEventListener("swadhyaya:proctor-consent", onUpdate);
     return () => {
       window.clearInterval(t);
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("swadhyaya:proctor-pref-update", onUpdate);
-      window.removeEventListener("swadhyaya:proctor-consent", onUpdate);
     };
   }, []);
 
   // 1-Hz tick so the duration counter updates inside this component.
   useEffect(() => {
-    if (!mounted || !consented || !session) return;
+    if (!mounted || !session) return;
     const t = window.setInterval(() => forceTick((v) => v + 1), 1000);
     return () => window.clearInterval(t);
-  }, [mounted, consented, session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mounted, session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!mounted) return null;
   if (!isProctoringEnabled()) return null;
-  if (!consented) return null;
   if (!session) return null;
 
   const healthy = session.violationCount === 0;

@@ -48,16 +48,13 @@ export function ProctorLiveBadge() {
     // the violation count + heartbeat freshness.
     const tTimer = window.setInterval(() => force((v) => v + 1), 1000);
     const tRefresh = window.setInterval(refresh, 2000);
-    const onUpdate = () => refresh();
     const onStorage = (e: StorageEvent) => {
       if (e.key === "swadhyaya-proctoring") refresh();
     };
-    window.addEventListener("swadhyaya:proctor-pref-update", onUpdate);
     window.addEventListener("storage", onStorage);
     return () => {
       window.clearInterval(tTimer);
       window.clearInterval(tRefresh);
-      window.removeEventListener("swadhyaya:proctor-pref-update", onUpdate);
       window.removeEventListener("storage", onStorage);
     };
   }, []);

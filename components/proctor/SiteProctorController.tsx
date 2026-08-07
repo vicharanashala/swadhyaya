@@ -1,35 +1,36 @@
 "use client";
 
-// SiteProctorController — the master site-wide proctoring orchestrator.
-// Mounted in layout.tsx so it runs on every page once the student has
-// opted in. Combines the detector hooks into a coherent lifecycle:
+// SiteProctorController — runs the detector suite for the whole app.
 //
-//   1. Reads `swadhyaya-proctoring-default` and only enables when the
-//      student has picked "always" and has an ethics-consent acceptance
-//      on file.
-//   2. Opens a server-side attempt (lib/proctor-client) and a local
-//      mirror (lib/proctoring), then spins up the camera.
-//   3. Runs the detector suite, each of which reports into one shared
-//      violation sink:
-//        useProctor           focus / tab / clipboard / devtools / idle
-//        useFaceDetection     no_face, multiple_faces, looking_away
-//        useFaceRecognition   face_mismatch  (only once registered)
-//        useBlurDetection     blur_detected
-//        useVoiceDetection    voice_detected (only with mic consent)
-//        useCameraIntegrity   camera_blocked, motion_detected
-//   4. Renders the floating webcam panel so the student can always see
-//      exactly what the system sees.
-//   5. Surfaces the newest actionable anomaly through the full-screen
-//      overlay.
+// Mounted inside ProctorGate, so by the time this renders the camera and
+// microphone are already live and shared through ProctorMediaProvider.
+// That inverts the old design, which asked for consent, stored a
+// preference, and then tried to start a camera that might never arrive:
 //
-// Every violation is written twice: once to the server, where the
-// student cannot reach it, and once to localStorage so the student's own
-// panel stays responsive when the network is slow. The snapshot bytes
-// only fall back to localStorage if the upload failed.
+//   • There is no enable/disable preference any more. Monitoring is a
+//     precondition for the app rendering at all, so a "proctoring off"
+//     branch would be unreachable. Presence of a live stream is consent.
+//   • There is no separate microphone grant. The gate acquires audio and
+//     video together, so voice detection always runs.
+//   • This component no longer calls getUserMedia. It consumes the one
+//     stream the provider owns, which is why there is a single recording
+//     indicator rather than three.
+//
+// Detectors and the violation types they raise:
+//   useProctor           focus / tab / clipboard / devtools / idle
+//   useFaceDetection     no_face, multiple_faces, looking_away
+//   useFaceRecognition   face_mismatch  (only once registered)
+//   useBlurDetection     blur_detected
+//   useVoiceDetection    voice_detected
+//   useCameraIntegrity   camera_blocked, motion_detected
+//
+// Every violation is written twice: to the server, where the student
+// cannot reach it, and to localStorage so the student's own panel stays
+// responsive when the network is slow. Snapshot bytes only fall back to
+// localStorage if the upload failed.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  endSiteSession,
   getOrCreateSiteSession,
   type Attempt,
   isProctoringEnabled,
@@ -43,7 +44,7 @@ import {
   reportRemoteViolation,
   sendRemoteHeartbeat,
 } from "@/lib/proctor-client";
-import { useCamera } from "./useCamera";
+import { useOptionalProctorMedia } from "./ProctorMediaProvider";
 import { useFaceDetection } from "./useFaceDetection";
 import { useFaceRecognition } from "./useFaceRecognition";
 import { useBlurDetection } from "./useBlurDetection";
@@ -57,9 +58,6 @@ import {
 } from "./VibeStyleAnomalyOverlay";
 import { ShieldCheck } from "lucide-react";
 
-const PREF_KEY = "swadhyaya-proctoring-default";
-const CONSENT_KEY = "swadhyaya-proctoring-consent";
-const MIC_CONSENT_KEY = "swadhyaya-proctoring-mic-consent";
 const SESSION_CONCEPT = "_session";
 
 /** Types that warrant uploading a camera still as evidence. Clipboard
@@ -73,46 +71,21 @@ const EVIDENCE_TYPES = new Set([
   "motion_detected",
 ]);
 
-function readPref(): "ask" | "always" | "never" {
-  if (typeof window === "undefined") return "ask";
-  try {
-    const v = window.localStorage.getItem(PREF_KEY);
-    return v === "always" || v === "never" ? v : "ask";
-  } catch {
-    return "ask";
-  }
-}
-
-function hasConsented(): boolean {
-  try {
-    return window.localStorage.getItem(CONSENT_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function hasMicConsent(): boolean {
-  try {
-    return window.localStorage.getItem(MIC_CONSENT_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markConsented() {
-  try {
-    window.localStorage.setItem(CONSENT_KEY, "1");
-  } catch {
-    /* ignore */
-  }
-}
-
 export function SiteProctorController() {
-  const [mounted, setMounted] = useState(false);
-  const [enabled, setEnabled] = useState(false);
+  // Optional, not strict: when NEXT_PUBLIC_PROCTORING is off ProctorGate
+  // is a pass-through and no provider exists. The strict hook threw
+  // there, which broke the build for non-proctoring deployments.
+  const media = useOptionalProctorMedia();
+  const live = Boolean(media?.healthy);
+
+  // Hooks below run unconditionally (rules of hooks), so they need a
+  // real ref object even on the no-provider path. They're all disabled
+  // via `enabled: live` in that case and never dereference it.
+  const fallbackVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = media?.videoRef ?? fallbackVideoRef;
+
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [faceCount, setFaceCount] = useState<number | null>(null);
-  const [micEnabled, setMicEnabled] = useState(false);
   const [, forceTick] = useState(0);
 
   const attemptIdRef = useRef<string | null>(null);
@@ -120,71 +93,12 @@ export function SiteProctorController() {
     attemptIdRef.current = attempt?.id ?? null;
   }, [attempt]);
 
-  useEffect(() => setMounted(true), []);
-
   // 1-Hz tick for the panel's live timer.
   useEffect(() => {
-    if (!enabled) return;
+    if (!live) return;
     const t = window.setInterval(() => forceTick((v) => v + 1), 1000);
     return () => window.clearInterval(t);
-  }, [enabled]);
-
-  // ───────────────────────────────────────────────────────────────────
-  // Enablement
-  // ───────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!mounted || !isProctoringEnabled()) return;
-
-    const refresh = () => {
-      const active = readPref() === "always" && hasConsented();
-
-      if (active && !attemptIdRef.current) {
-        getOrCreateSiteSession();
-        // Best-effort: a failed open just means this session is local-only.
-        void openRemoteAttempt(SESSION_CONCEPT);
-      }
-      if (!active && attemptIdRef.current) {
-        endSiteSession("completed");
-        void closeRemoteAttempt("completed");
-        setAttempt(null);
-      }
-
-      setEnabled(active);
-      setMicEnabled(active && hasMicConsent());
-
-      if (active) {
-        const sessions = listAttempts().filter(
-          (a) => a.conceptId === SESSION_CONCEPT && a.status === "active",
-        );
-        setAttempt(sessions[0] ?? null);
-      }
-    };
-
-    refresh();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === PREF_KEY || e.key === CONSENT_KEY || e.key === MIC_CONSENT_KEY) {
-        refresh();
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("swadhyaya:proctor-consent", refresh);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("swadhyaya:proctor-consent", refresh);
-    };
-  }, [mounted]);
-
-  // ───────────────────────────────────────────────────────────────────
-  // Camera. Audio is requested separately by useVoiceDetection so a
-  // student who consents to video but not the mic gets exactly that.
-  // ───────────────────────────────────────────────────────────────────
-  const camera = useCamera({ audio: false, autostart: enabled });
-
-  useEffect(() => {
-    if (enabled) void camera.start();
-    else camera.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, [live]);
 
   const refreshAttempt = useCallback(() => {
     const sessions = listAttempts().filter(
@@ -192,6 +106,19 @@ export function SiteProctorController() {
     );
     setAttempt(sessions[0] ?? null);
   }, []);
+
+  // ───────────────────────────────────────────────────────────────────
+  // Open the session as soon as media goes live.
+  // ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!live || !isProctoringEnabled()) return;
+    if (attemptIdRef.current) return;
+
+    getOrCreateSiteSession();
+    // Best-effort: a failed open just means this session is local-only.
+    void openRemoteAttempt(SESSION_CONCEPT);
+    refreshAttempt();
+  }, [live, refreshAttempt]);
 
   // ───────────────────────────────────────────────────────────────────
   // The single violation sink every detector feeds.
@@ -202,7 +129,7 @@ export function SiteProctorController() {
       if (!id) return;
 
       const snapshot = EVIDENCE_TYPES.has(input.type)
-        ? (camera.captureFrame() ?? undefined)
+        ? (media?.captureFrame() ?? undefined)
         : undefined;
 
       // Server first — that copy is the one the student can't delete.
@@ -214,16 +141,12 @@ export function SiteProctorController() {
         snapshot,
       });
 
-      // Mirror locally. Keep the image bytes only when the upload
-      // failed, so localStorage isn't carrying duplicates of evidence
-      // that already lives on disk.
-      logViolation(id, {
-        ...input,
-        snapshot: uploaded ? undefined : snapshot,
-      });
+      // Mirror locally, keeping image bytes only when the upload failed
+      // so localStorage isn't duplicating evidence already on disk.
+      logViolation(id, { ...input, snapshot: uploaded ? undefined : snapshot });
       refreshAttempt();
     },
-    [camera, refreshAttempt],
+    [media, refreshAttempt],
   );
 
   // Detectors debounce internally; this guards against two different
@@ -240,40 +163,40 @@ export function SiteProctorController() {
   );
 
   // ───────────────────────────────────────────────────────────────────
-  // Detector suite
+  // Detector suite — all reading the one shared stream.
   // ───────────────────────────────────────────────────────────────────
   const face = useFaceDetection({
-    videoRef: camera.videoRef,
-    enabled: enabled && camera.isRunning,
+    videoRef,
+    enabled: live,
     onAnomaly,
     onFaceCount: setFaceCount,
   });
 
   const recognition = useFaceRecognition({
-    videoRef: camera.videoRef,
-    enabled: enabled && camera.isRunning,
+    videoRef,
+    enabled: live,
     onAnomaly,
   });
 
   useBlurDetection({
-    videoRef: camera.videoRef,
-    enabled: enabled && camera.isRunning,
+    videoRef,
+    enabled: live,
     onAnomaly,
   });
 
   useVoiceDetection({
-    enabled: micEnabled,
+    stream: media?.stream ?? null,
+    enabled: live,
     onAnomaly,
   });
 
   useCameraIntegrity({
-    videoRef: camera.videoRef,
-    stream: camera.stream,
-    enabled: enabled && camera.isRunning,
+    videoRef,
+    stream: media?.stream ?? null,
+    enabled: live,
     onAnomaly,
   });
 
-  // Standard listeners (focus / tab / clipboard / devtools / idle).
   useProctor({ attempt, onViolation: refreshAttempt });
 
   // ───────────────────────────────────────────────────────────────────
@@ -281,35 +204,33 @@ export function SiteProctorController() {
   // whose browser was closed without ending cleanly.
   // ───────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!enabled) return;
+    if (!live) return;
     const id = window.setInterval(() => void sendRemoteHeartbeat(), 10_000);
     return () => window.clearInterval(id);
-  }, [enabled]);
+  }, [live]);
 
   // Close the server attempt when the tab goes away. `pagehide` fires in
   // cases `beforeunload` misses, notably the bfcache path on iOS.
   useEffect(() => {
-    if (!enabled) return;
     const onHide = () => void closeRemoteAttempt("abandoned");
     window.addEventListener("pagehide", onHide);
     return () => window.removeEventListener("pagehide", onHide);
-  }, [enabled]);
+  }, []);
 
   const activeAnomaly = useMemo(
     () => (attempt ? deriveActiveAnomaly(attempt.violations, 5000) : null),
     [attempt],
   );
 
-  if (!mounted) return null;
-  if (!enabled || !attempt) return null;
+  if (!live || !attempt) return null;
 
   return (
     <>
       <ProctorFloatingPanel
         attempt={attempt}
-        videoRef={camera.videoRef}
-        cameraRunning={camera.isRunning}
-        cameraError={camera.error ?? face.error}
+        videoRef={videoRef}
+        cameraRunning={live}
+        cameraError={face.error}
         faceCount={faceCount}
         detectorBackend={face.backend}
         identityStatus={
@@ -324,38 +245,12 @@ export function SiteProctorController() {
       />
       <VibeStyleAnomalyOverlay
         violation={activeAnomaly}
-        videoRef={camera.videoRef}
-        cameraRunning={camera.isRunning}
+        videoRef={videoRef}
+        cameraRunning={live}
         faceCount={faceCount}
       />
     </>
   );
-}
-
-// Used by the GlobalProctorBanner when the student accepts the ethics
-// consent: writes the record and tells the controller to enable.
-export function acceptSiteProctoring() {
-  markConsented();
-  window.dispatchEvent(new CustomEvent("swadhyaya:proctor-consent"));
-}
-
-export function declineSiteProctoring() {
-  try {
-    window.localStorage.setItem(CONSENT_KEY, "0");
-  } catch {
-    /* ignore */
-  }
-  window.dispatchEvent(new CustomEvent("swadhyaya:proctor-consent"));
-}
-
-/** Mic monitoring is a separate, revocable grant from camera monitoring. */
-export function setMicrophoneConsent(granted: boolean) {
-  try {
-    window.localStorage.setItem(MIC_CONSENT_KEY, granted ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-  window.dispatchEvent(new CustomEvent("swadhyaya:proctor-consent"));
 }
 
 // Re-export so callers don't need to know the underlying module path.

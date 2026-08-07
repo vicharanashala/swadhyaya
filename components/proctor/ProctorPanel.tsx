@@ -8,12 +8,11 @@
 //   • finished    — summary card after the attempt ends (success / early)
 //                   with the full violation log
 //
-// Honors the global per-browser default preference stored in
-// localStorage under `swadhyaya-proctoring-default`:
-//
-//   • "always"  → skip the consent, jump straight into active mode
-//   • "never"   → render nothing (the test proceeds with no monitoring)
-//   • "ask"     → show the modal popup (default for first-time visitors)
+// Attaches to the site-wide session that ProctorGate has already
+// established. There is no consent step and no opt-out: the app does not
+// render at all until the camera and microphone are live, so a panel
+// that asked permission or offered to skip would be advertising an
+// escape hatch that doesn't exist.
 //
 // Renders a tiny "disabled on this deployment" notice when the env var
 // is off.
@@ -40,7 +39,6 @@ import {
   VIOLATION_LABEL,
 } from "@/lib/proctoring";
 import { useProctor } from "./useProctor";
-import { ProctorConsentModal } from "./ProctorConsentModal";
 
 interface ProctorPanelProps {
   conceptId: string;
@@ -105,41 +103,32 @@ function ProctorBody({
   resumeAttemptId,
 }: ProctorPanelProps) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
-  const [mode, setMode] = useState<Mode>("consent");
+  const [mode, setMode] = useState<Mode>("active");
   const [showLog, setShowLog] = useState(false);
   const [, forceTick] = useState(0); // 1 Hz re-render for live timer
 
-  // Global per-browser default preference (set by GlobalProctorBanner).
-  // Read once on mount; if "always" jump straight into active using
-  // the existing site-wide session (or create a new one). If "never"
-  // render nothing. If "ask" → show the per-test consent modal.
-  const [pref, setPref] = useState<"ask" | "always" | "never">("ask");
+  // Monitoring is mandatory and already running site-wide by the time
+  // any concept page mounts — ProctorGate will not render the app until
+  // the camera and microphone are live. So this panel never asks and
+  // never offers to skip; it attaches to the session already in flight,
+  // and only falls back to creating a concept-scoped attempt if the
+  // site session somehow isn't there.
+  //
+  // The old "ask" / "always" / "never" preference is gone. A "never"
+  // branch is unreachable now that the app cannot render unmonitored,
+  // and leaving the opt-out in the UI would have advertised an escape
+  // hatch that no longer exists.
   useEffect(() => {
-    try {
-      const v = window.localStorage.getItem("swadhyaya-proctoring-default");
-      const next: "ask" | "always" | "never" =
-        v === "always" || v === "never" ? v : "ask";
-      setPref(next);
-      if (next === "always") {
-        // Site-wide proctoring: look for an existing _session attempt
-        // first; if none active, create the concept-specific one.
-        const sessions = listAttempts().filter(
-          (a) => a.conceptId === "_session" && a.status === "active",
-        );
-        if (sessions.length > 0) {
-          setAttempt(sessions[0]!);
-          setMode("active");
-        } else {
-          const a = startAttempt(conceptId);
-          setAttempt(a);
-          setMode("active");
-        }
-        setShowLog(false);
-      }
-      // "never" → render nothing.
-    } catch {
-      // localStorage disabled — fall back to "ask".
-    }
+    const sessions = listAttempts().filter(
+      (a) => a.conceptId === "_session" && a.status === "active",
+    );
+    const a = sessions[0] ?? startAttempt(conceptId);
+    setAttempt(a);
+    setMode("active");
+    setShowLog(false);
+    // The parent tracks this id to derive its own status; it used to
+    // arrive via the consent modal's onStart, which no longer exists.
+    onStart?.(a.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -230,19 +219,6 @@ function ProctorBody({
     },
   });
 
-  const start = () => {
-    // Prefer the sticky site session if one is live; otherwise
-    // create a per-concept attempt.
-    const sessions = listAttempts().filter(
-      (a) => a.conceptId === "_session" && a.status === "active",
-    );
-    const a = sessions[0] ?? startAttempt(conceptId);
-    setAttempt(a);
-    setMode("active");
-    setShowLog(false);
-    onStart?.(a.id);
-  };
-
   const endEarly = () => {
     if (!attempt) return;
     const isSession = attempt.conceptId === "_session";
@@ -260,39 +236,8 @@ function ProctorBody({
   };
 
   const reset = () => {
-    setAttempt(null);
-    setMode("consent");
     setShowLog(false);
   };
-
-  if (pref === "never") {
-    // User opted out at the site level. Render nothing.
-    return null;
-  }
-
-  if (mode === "consent") {
-    // Vibe-style: a centered modal popup, not a passive inline card.
-    // The Test tab is hidden behind this modal until the student
-    // explicitly chooses to opt-in or skip.
-    //
-    // If the global preference was "ask" (still default after first
-    // visit), lock the consent in on tap so the next Test tab visit
-    // skips the modal entirely.
-    const inSessionContext =
-      typeof window !== "undefined" &&
-      listAttempts().some(
-        (a) => a.conceptId === "_session" && a.status === "active",
-      );
-    return (
-      <ProctorConsentModal
-        isOpen
-        conceptId={inSessionContext ? "_session · site-wide" : conceptId}
-        onConsent={start}
-        onSkip={reset}
-        lockInOnConsent={pref === "ask"}
-      />
-    );
-  }
 
   if (mode === "finished" && attempt) {
     return (

@@ -6,7 +6,7 @@
 // rendered but never emitted.
 //
 // Classifies mic audio with YAMNet via MediaPipe's AudioClassifier and
-// reports when the top category is "Speech". Two changes from vibe's
+// reports when the top category is "Speech". Three changes from vibe's
 // original:
 //
 //   • The wasm fileset and the .tflite are loaded from public/models
@@ -16,14 +16,17 @@
 //     thread. This uses an AnalyserNode gate: audio is only handed to
 //     the classifier when short-term RMS suggests something is there,
 //     which keeps a silent room close to zero CPU.
-//
-// The mic is the most invasive sensor here, so it is strictly opt-in via
-// `enabled` and the stream is released the moment it goes false.
+//   • The audio track is taken from the shared session stream rather
+//     than a second getUserMedia call, so the student sees one
+//     recording indicator instead of two and revoking the mic is
+//     detected in one place (ProctorMediaProvider).
 
 import { useEffect, useRef, useState } from "react";
 import type { AudioClassifier } from "@mediapipe/tasks-audio";
 
 export interface VoiceDetectionOpts {
+  /** The shared session stream. Its audio track is used directly. */
+  stream: MediaStream | null;
   enabled: boolean;
   onAnomaly?: (a: { type: "voice_detected"; severity: number }) => void;
   /** Classifier confidence above which "Speech" counts. vibe used 0.5. */
@@ -47,7 +50,7 @@ const CONFIRM = 3;
 const REPORT_COOLDOWN_MS = 30_000;
 
 export function useVoiceDetection(opts: VoiceDetectionOpts): VoiceDetection {
-  const { enabled, onAnomaly, minScore = 0.5 } = opts;
+  const { stream, enabled, onAnomaly, minScore = 0.5 } = opts;
 
   const [isSpeaking, setIsSpeaking] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
@@ -59,16 +62,19 @@ export function useVoiceDetection(opts: VoiceDetectionOpts): VoiceDetection {
   });
 
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") {
+    if (!enabled || !stream || typeof window === "undefined") {
       setReady(false);
       setIsSpeaking(null);
+      return;
+    }
+    if (stream.getAudioTracks().length === 0) {
+      setError("session stream carries no audio track");
       return;
     }
 
     let cancelled = false;
     let classifier: AudioClassifier | null = null;
     let audioCtx: AudioContext | null = null;
-    let stream: MediaStream | null = null;
     let rafId = 0;
     let streak = 0;
     let lastClassify = 0;
@@ -94,12 +100,7 @@ export function useVoiceDetection(opts: VoiceDetectionOpts): VoiceDetection {
           return;
         }
 
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
+        // Read from the shared stream — do NOT call getUserMedia here.
         audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
         const source = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
@@ -166,13 +167,14 @@ export function useVoiceDetection(opts: VoiceDetectionOpts): VoiceDetection {
     return () => {
       cancelled = true;
       if (rafId) cancelAnimationFrame(rafId);
-      stream?.getTracks().forEach((t) => t.stop());
+      // The stream itself belongs to ProctorMediaProvider — close only
+      // what this hook created.
       void audioCtx?.close().catch(() => undefined);
       classifier?.close();
       setReady(false);
       setIsSpeaking(null);
     };
-  }, [enabled, minScore]);
+  }, [enabled, stream, minScore]);
 
   return { isSpeaking, ready, error };
 }
