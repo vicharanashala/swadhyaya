@@ -502,7 +502,7 @@ function RowExpandable({
                               {fmtDuration(v.durationMs)}
                             </span>
                           )}
-                          {v.snapshot && (
+                          {(v.evidenceId || v.snapshot) && (
                             <Camera
                               size={10}
                               className="text-accent"
@@ -517,7 +517,12 @@ function RowExpandable({
                         </li>
                       ))}
                     </ol>
-                    {a.violations.some((v) => v.snapshot) && (
+                    {/* Evidence lives server-side under `evidenceId`; the
+                        inline `snapshot` data-URL only survives on records
+                        whose upload failed. Guarding on `snapshot` alone
+                        meant the grid never mounted for any normally
+                        stored attempt. */}
+                    {a.violations.some((v) => v.evidenceId || v.snapshot) && (
                       <SnapshotGrid attempts={a} />
                     )}
                   </>
