@@ -1,11 +1,19 @@
 "use client";
 
-// AdminProctorDashboard — consumer of the same localStorage that the
-// student-side ProctorPanel writes to. Because proctoring data lives
-// in localStorage, this dashboard only ever sees what runs in THIS
-// browser. The intended deployment model is a teacher / proctor who
-// opens /admin/proctor on the SAME machine (e.g. a shared classroom
-// laptop) where students have been testing.
+// AdminProctorDashboard — reads proctored attempts from the server via
+// /api/proctor/attempts.
+//
+// This used to read localStorage directly, which meant the dashboard
+// only ever saw attempts made in the very same browser — a teacher had
+// to physically sit at the machine the student tested on, and any
+// student could erase their own record from devtools. Attempts now
+// persist server-side (lib/proctor-store.ts) and this is a normal
+// authenticated read.
+//
+// Access is gated on PROCTOR_ADMIN_TOKEN. There is no user auth in this
+// app yet (lib/auth.ts), so that shared secret is the whole access
+// control story — the token is prompted for here and held in
+// sessionStorage only.
 //
 // Three sections, top to bottom:
 //   1. KPI strip — total attempts, active now, completed, abandoned,
@@ -15,13 +23,15 @@
 //   3. History table — every attempt, expandable to show the full
 //      violation log + device metadata
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { type Attempt, attemptDuration, VIOLATION_LABEL } from "@/lib/proctoring";
 import {
-  type Attempt,
-  attemptDuration,
-  listAttempts,
-  VIOLATION_LABEL,
-} from "@/lib/proctoring";
+  clearAdminToken,
+  getAdminToken,
+  setAdminToken,
+  useEvidenceUrl,
+  useRemoteAttempts,
+} from "@/lib/proctor-admin-client";
 import {
   Activity,
   Camera,
@@ -30,6 +40,7 @@ import {
   EyeOff,
   Filter,
   Image as ImageIcon,
+  KeyRound,
   ShieldAlert,
   ShieldCheck,
   XCircle,
@@ -60,7 +71,7 @@ function relTime(ts: number, now: number) {
 }
 
 export function AdminProctorDashboard() {
-  const [attempts, setAttempts] = useState<Attempt[] | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<
@@ -68,18 +79,68 @@ export function AdminProctorDashboard() {
   >("all");
   const [conceptFilter, setConceptFilter] = useState<string>("");
 
-  // Poll every 5 s so "active" stays fresh without re-mounting.
+  // Read the stored token after mount so SSR and the first client render
+  // agree — sessionStorage doesn't exist on the server.
+  useEffect(() => setToken(getAdminToken()), []);
+
+  const state = useRemoteAttempts(token);
+
   useEffect(() => {
-    setAttempts(listAttempts());
-    setNow(Date.now());
-    const t = window.setInterval(() => {
-      setAttempts(listAttempts());
-      setNow(Date.now());
-    }, 5000);
+    const t = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(t);
   }, []);
 
-  if (attempts === null) {
+  if (state.status === "unauthorized") {
+    return (
+      <TokenGate
+        onSubmit={(t) => {
+          setAdminToken(t);
+          setToken(t);
+        }}
+      />
+    );
+  }
+
+  if (state.status === "misconfigured") {
+    return (
+      <div className="bg-card border border-warn/40 rounded-xl p-8 text-center">
+        <ShieldAlert size={32} className="mx-auto text-warn" aria-hidden="true" />
+        <h2 className="mt-3 font-serif text-xl text-ink">
+          Proctoring API unavailable
+        </h2>
+        <p className="mt-1 text-sm text-dim max-w-md mx-auto">{state.message}</p>
+        <p className="mt-3 text-xs text-faint max-w-md mx-auto">
+          Set <code className="text-ink">PROCTOR_ADMIN_TOKEN</code> and{" "}
+          <code className="text-ink">NEXT_PUBLIC_PROCTORING=1</code> in the
+          server environment, then restart.
+        </p>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="bg-card border border-line rounded-xl p-8 text-center">
+        <XCircle size={32} className="mx-auto text-warn" aria-hidden="true" />
+        <h2 className="mt-3 font-serif text-xl text-ink">
+          Couldn&apos;t load attempts
+        </h2>
+        <p className="mt-1 text-sm text-dim">{state.message}</p>
+        <button
+          type="button"
+          onClick={() => {
+            clearAdminToken();
+            setToken(null);
+          }}
+          className="mt-4 text-xs text-faint underline hover:text-ink"
+        >
+          Re-enter token
+        </button>
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
     return (
       <div className="text-center text-xs text-faint py-12">
         Loading attempts…
@@ -87,15 +148,18 @@ export function AdminProctorDashboard() {
     );
   }
 
+  // The server shape is the local Attempt shape minus inline snapshots,
+  // plus subjectId — structurally compatible for everything below.
+  const attempts = state.attempts as unknown as Attempt[];
+
   if (attempts.length === 0) {
     return (
       <div className="bg-card border border-line rounded-xl p-8 text-center">
         <ShieldCheck size={32} className="mx-auto text-faint" aria-hidden="true" />
         <h2 className="mt-3 font-serif text-xl text-ink">No proctored attempts yet</h2>
         <p className="mt-1 text-sm text-dim max-w-md mx-auto">
-          When a student starts a proctored Test tab from a browser that
-          shares this admin's <code className="text-ink">localStorage</code>,
-          their attempt will appear here.
+          Attempts appear here as soon as a student begins a proctored
+          session — from any browser, on any machine.
         </p>
       </div>
     );
@@ -497,41 +561,114 @@ function computeKpis(attempts: Attempt[], now: number) {
 void EyeOff; // (kept around in case we want a disabled-banner variant)
 
 // ───────────────────────────────────────────────────────────────────────
-// Snapshot grid — opens a lightbox with full resolution when clicked.
-// Will move to a server `/api/proctor/evidence/:id` endpoint later;
-// for now we render the data URL directly from localStorage.
+// Token gate — the only access control on student webcam evidence until
+// real auth lands (lib/auth.ts). Deliberately blunt about that.
 // ───────────────────────────────────────────────────────────────────────
+function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }) {
+  const [value, setValue] = useState("");
+
+  return (
+    <div className="bg-card border border-line rounded-xl p-8 max-w-md mx-auto">
+      <KeyRound size={28} className="mx-auto text-faint" aria-hidden="true" />
+      <h2 className="mt-3 font-serif text-xl text-ink text-center">
+        Admin token required
+      </h2>
+      <p className="mt-2 text-sm text-dim text-center">
+        This dashboard shows webcam evidence recorded from students. Enter
+        the <code className="text-ink">PROCTOR_ADMIN_TOKEN</code> configured
+        on the server.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onSubmit(value.trim());
+        }}
+        className="mt-5"
+      >
+        <input
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="PROCTOR_ADMIN_TOKEN"
+          autoComplete="off"
+          className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus:border-accent"
+        />
+        <button
+          type="submit"
+          disabled={!value.trim()}
+          className="mt-3 w-full rounded-lg bg-ink px-4 py-2 text-sm text-paper transition hover:opacity-90 disabled:opacity-40"
+        >
+          Unlock
+        </button>
+      </form>
+      <p className="mt-4 text-[11px] leading-relaxed text-faint">
+        Held in this tab&apos;s sessionStorage only — it is discarded when
+        you close the tab, and never written to disk.
+      </p>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Snapshot grid — evidence lives on the server and is fetched with the
+// admin token, so each tile resolves its own authenticated object URL
+// rather than rendering a base64 data-URL out of localStorage.
+// ───────────────────────────────────────────────────────────────────────
+function EvidenceTile({
+  violation,
+  onZoom,
+}: {
+  violation: import("@/lib/proctoring").Violation;
+  onZoom: (url: string) => void;
+}) {
+  // Prefer server evidence; fall back to an inline snapshot, which only
+  // exists on records whose upload failed.
+  const fetched = useEvidenceUrl(
+    (violation as { evidenceId?: string }).evidenceId,
+  );
+  const url = fetched ?? violation.snapshot ?? null;
+
+  if (!url) {
+    return (
+      <div className="relative aspect-video bg-canvas border border-line rounded overflow-hidden grid place-items-center">
+        <span className="text-[9px] text-faint">loading…</span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onZoom(url)}
+      aria-label={`Snapshot at ${new Date(violation.timestamp).toLocaleTimeString()} — ${VIOLATION_LABEL[violation.type]}`}
+      className="relative aspect-video bg-canvas border border-line rounded overflow-hidden hover:border-accent/50 transition"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="w-full h-full object-cover" />
+      <span className="absolute bottom-1 left-1 text-[9px] px-1 py-0.5 rounded bg-canvas/85 text-faint font-mono">
+        {VIOLATION_LABEL[violation.type]}
+      </span>
+    </button>
+  );
+}
+
 function SnapshotGrid({ attempts }: { attempts: import("@/lib/proctoring").Attempt }) {
-  // Always call hooks at the top — no early return before `useState`.
   const [zoom, setZoom] = useState<string | null>(null);
-  const snapshots = attempts.violations.filter((v) => v.snapshot);
-  if (snapshots.length === 0) return null;
+  const withEvidence = attempts.violations.filter(
+    (v) => (v as { evidenceId?: string }).evidenceId || v.snapshot,
+  );
+  if (withEvidence.length === 0) return null;
+
   return (
     <>
       <div className="mt-3">
         <div className="text-[10px] uppercase tracking-wider text-faint mb-1 inline-flex items-center gap-1">
           <ImageIcon size={11} aria-hidden="true" />
-          Captured snapshots ({snapshots.length})
+          Captured snapshots ({withEvidence.length})
         </div>
         <div className="grid grid-cols-4 gap-1">
-          {snapshots.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => v.snapshot && setZoom(v.snapshot)}
-              aria-label={`Snapshot at ${new Date(v.timestamp).toLocaleTimeString()} — ${VIOLATION_LABEL[v.type]}`}
-              className="relative aspect-video bg-canvas border border-line rounded overflow-hidden hover:border-accent/50 transition"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={v.snapshot!}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-              <span className="absolute bottom-1 left-1 text-[9px] px-1 py-0.5 rounded bg-canvas/85 text-faint font-mono">
-                {VIOLATION_LABEL[v.type]}
-              </span>
-            </button>
+          {withEvidence.map((v) => (
+            <EvidenceTile key={v.id} violation={v} onZoom={setZoom} />
           ))}
         </div>
       </div>
@@ -550,9 +687,9 @@ function SnapshotGrid({ attempts }: { attempts: import("@/lib/proctoring").Attem
               className="w-full h-auto rounded-lg shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
             />
             <p className="mt-3 text-center text-[11px] text-faint">
-              Click anywhere to close. Snapshots stay in your browser
-              until a server endpoint (`/api/proctor/evidence`) is
-              wired up — then they will sync to the admin dashboard.
+              Click anywhere to close. Served from{" "}
+              <code>/api/proctor/evidence</code> with no-store — nothing is
+              cached to disk.
             </p>
           </div>
         </div>

@@ -11,10 +11,14 @@
 // This makes proctoring opt-in by deployment, not by code-level flag.
 //
 // Storage: localStorage key `swadhyaya-proctoring`. We hold up to MAX_ATTEMPTS
-// kept attempts in store; older ones are pruned. Server persistence is
-// intentionally absent — swadhyaya is a static export; the admin dashboard
-// consumes the same localStorage so it can be served on a different
-// browser (e.g. a teacher's laptop) as long as the key is shared.
+// kept attempts in store; older ones are pruned.
+//
+// This is the *local mirror*, not the record of account. Attempts and
+// violations are also written to the server via lib/proctor-client.ts,
+// where lib/proctor-store.ts persists them outside the student's reach —
+// a localStorage-only design meant any student could clear their own
+// evidence with one devtools command, and the reviewer had to sit at the
+// same physical browser to see anything.
 
 export type ViolationType =
   | "focus_loss"      // window/iframe lost focus
@@ -25,12 +29,14 @@ export type ViolationType =
   | "cut"             // cut attempt
   | "devtools_open"   // devtools detected by debugger timing
   | "long_idle"       // no input for > 5 min during the attempt
-  | "no_face"         // webcam captured no skin-tone pixels
-  | "multiple_faces"  // skin-tone ratio indicates >1 face in frame
-  | "blur_detected"   // camera frame too blurry
-  | "voice_detected"  // audio level too high (voice activity)
-  | "motion_detected" // scene change detected
-  | "camera_blocked"; // camera stopped or covered
+  | "no_face"         // face detector returned zero boxes
+  | "multiple_faces"  // face detector returned more than one box
+  | "looking_away"    // keypoint geometry indicates the head is turned
+  | "face_mismatch"   // face doesn't match the registered descriptor
+  | "blur_detected"   // Laplacian variance below threshold
+  | "voice_detected"  // YAMNet classified the audio frame as speech
+  | "motion_detected" // sudden whole-frame change
+  | "camera_blocked"; // camera track ended, muted, or covered
 
 export interface Violation {
   id: string;
@@ -41,11 +47,17 @@ export interface Violation {
   // For focus_loss events: how long the window was unfocused, ms.
   durationMs?: number;
   context?: string;
-  // Small JPEG snapshot captured at the moment of the violation
-  // (~5–15 KB each, stored in localStorage — wire to a server later
-  // via /api/proctor/evidence). Face-presence violations use this
-  // as evidence so the admin can see what the camera saw.
+  // Small JPEG snapshot captured at the moment of the violation.
+  //
+  // Only populated on the local (localStorage) record, and only when the
+  // server round-trip failed — see lib/proctor-client.ts. The durable
+  // copy is uploaded to /api/proctor/attempts/:id/violations and stored
+  // on disk by lib/proctor-store.ts, which hands back an `evidenceId`
+  // instead. Inlining base64 here was capping the store out at the ~5 MB
+  // localStorage quota after a couple of dozen anomalies.
   snapshot?: string;
+  /** Pointer to server-side evidence, when the upload succeeded. */
+  evidenceId?: string;
 }
 
 export type AttemptStatus =
@@ -318,10 +330,11 @@ export interface ViolationInput {
   severity?: number;
   durationMs?: number;
   context?: string;
-  /** Optional JPEG data-URL snapshot of the camera at the moment
-   *  of the anomaly. Persisted into localStorage so the admin can
-   *  see what the camera saw (will move to server upload later). */
+  /** JPEG data-URL. Kept locally only as a fallback when the upload to
+   *  /api/proctor/attempts/:id/violations failed; otherwise the bytes
+   *  live server-side and `evidenceId` points at them. */
   snapshot?: string;
+  evidenceId?: string;
 }
 
 export function logViolation(
@@ -381,8 +394,10 @@ export const VIOLATION_LABEL: Record<ViolationType, string> = {
   long_idle: "Idle for 5+ minutes",
   no_face: "No face in frame",
   multiple_faces: "Multiple people in frame",
+  looking_away: "Looking away from screen",
+  face_mismatch: "Face does not match registration",
   blur_detected: "Camera feed too blurry",
-  voice_detected: "Background voice detected",
+  voice_detected: "Speech detected",
   motion_detected: "Sudden scene change",
   camera_blocked: "Camera blocked or covered",
 };

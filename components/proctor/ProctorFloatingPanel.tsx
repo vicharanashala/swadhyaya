@@ -38,6 +38,10 @@ interface ProctorFloatingPanelProps {
   cameraRunning: boolean;
   cameraError: string | null;
   faceCount: number | null;
+  /** "webgl" | "cpu" — surfaced so a student on the slow CPU path can
+   *  see why detection feels sluggish rather than guessing. */
+  detectorBackend?: string | null;
+  identityStatus?: "unregistered" | "checking" | "verified" | "mismatch";
   onCollapseChange?: (collapsed: boolean) => void;
   onAddSnapshot?: (violationId: string, dataUrl: string) => void;
 }
@@ -50,6 +54,8 @@ export function ProctorFloatingPanel({
   cameraRunning,
   cameraError,
   faceCount,
+  detectorBackend,
+  identityStatus = "unregistered",
   onCollapseChange,
   onAddSnapshot,
 }: ProctorFloatingPanelProps) {
@@ -238,6 +244,39 @@ export function ProctorFloatingPanel({
 
         {/* Stats */}
         <div className="px-3 py-2 space-y-1 border-t border-line bg-elev/30">
+          {identityStatus !== "unregistered" && (
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-faint">
+                Identity
+              </span>
+              <span
+                className={cn(
+                  "font-mono text-[10px]",
+                  identityStatus === "verified"
+                    ? "text-correct"
+                    : identityStatus === "mismatch"
+                      ? "text-warn"
+                      : "text-faint",
+                )}
+              >
+                {identityStatus === "verified"
+                  ? "verified"
+                  : identityStatus === "mismatch"
+                    ? "mismatch"
+                    : "checking…"}
+              </span>
+            </div>
+          )}
+          {detectorBackend && (
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-faint">
+                Detector
+              </span>
+              <span className="font-mono text-[10px] text-faint">
+                {detectorBackend}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider text-faint">
               Time

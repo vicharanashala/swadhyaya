@@ -88,6 +88,22 @@ function copyFor(type: ViolationType): AnomalyCopy {
           "We can't see your camera feed. Please unblock / enable it so the session continues — your session resumes automatically.",
         warnColor: "var(--warn)",
       };
+    case "looking_away":
+      return {
+        icon: AlertTriangle,
+        title: "Eyes on the screen",
+        message:
+          "You've been looking away from the screen. Please face forward — your session resumes automatically.",
+        warnColor: "var(--warn)",
+      };
+    case "face_mismatch":
+      return {
+        icon: AlertTriangle,
+        title: "Identity check",
+        message:
+          "The person on camera doesn't match your registration. Please make sure the registered learner is the one on camera — your session resumes automatically.",
+        warnColor: "var(--warn)",
+      };
     case "tab_switch":
     case "focus_loss":
     default:
@@ -279,6 +295,21 @@ function VibeFlashOverlay() {
 // Convenience hook-equivalent: a small wrapper that watches the
 // latest violation and produces the active overlay state for parent
 // components. Currently unused but exported for future re-use.
+// Which violations are worth interrupting the student for. Keyboard and
+// window-focus events are logged but never surface an overlay — they are
+// not something the student can "fix" by adjusting, and a full-screen
+// takeover on every copy attempt would be unusable.
+const OVERLAY_TYPES = new Set<ViolationType>([
+  "no_face",
+  "multiple_faces",
+  "looking_away",
+  "face_mismatch",
+  "blur_detected",
+  "voice_detected",
+  "motion_detected",
+  "camera_blocked",
+]);
+
 export function deriveActiveAnomaly(
   violations: Violation[],
   windowMs: number = 5000,
@@ -287,8 +318,7 @@ export function deriveActiveAnomaly(
   const now = Date.now();
   const last = violations[violations.length - 1]!;
   if (now - last.timestamp > windowMs) return null;
-  if (last.type === "no_face" || last.type === "multiple_faces") return last;
-  return null;
+  return OVERLAY_TYPES.has(last.type) ? last : null;
 }
 
 // Avoid unused-import warnings when the build tries to tree-shake.

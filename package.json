@@ -9,6 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "setup:models": "node scripts/setup-proctor-models.mjs",
+    "postinstall": "node scripts/setup-proctor-models.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -17,8 +19,15 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\""
   },
   "dependencies": {
+    "@mediapipe/tasks-audio": "0.10.22-rc.20250304",
     "@react-three/drei": "9.122.0",
     "@react-three/fiber": "9.0.0-alpha.8",
+    "@tensorflow-models/face-detection": "1.0.3",
+    "@tensorflow/tfjs-backend-cpu": "4.22.0",
+    "@tensorflow/tfjs-backend-webgl": "4.22.0",
+    "@tensorflow/tfjs-converter": "4.22.0",
+    "@tensorflow/tfjs-core": "4.22.0",
+    "@vladmandic/face-api": "1.7.15",
     "canvas-confetti": "^1.9.4",
     "clsx": "2.1.1",
     "d3-scale": "4.0.2",
@@ -30,6 +39,7 @@
     "next": "15.1.6",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "server-only": "^0.0.1",
     "tailwind-merge": "2.6.0",
     "three": "0.171.0",
     "zustand": "5.0.2"
