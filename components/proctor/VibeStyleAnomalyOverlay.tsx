@@ -21,10 +21,13 @@ import { useEffect, useRef, useState, useRef as useReactRef } from "react";
 import { AlertTriangle, Camera, ShieldCheck, X } from "lucide-react";
 import type { Violation, ViolationType } from "@/lib/proctoring";
 import { cn } from "@/lib/cn";
+import { useStreamSink } from "./ProctorMediaProvider";
 
 interface VibeStyleAnomalyOverlayProps {
   violation: Violation | null;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** Shared session stream. Attached to this overlay's own <video>
+   *  via useStreamSink — see the note in ProctorFloatingPanel. */
+  stream: MediaStream | null;
   cameraRunning: boolean;
   faceCount: number | null;
   dismissMs?: number;
@@ -119,12 +122,13 @@ function copyFor(type: ViolationType): AnomalyCopy {
 
 export function VibeStyleAnomalyOverlay({
   violation,
-  videoRef,
+  stream,
   cameraRunning,
   faceCount,
   dismissMs = 5000,
   onAck,
 }: VibeStyleAnomalyOverlayProps) {
+  const videoRef = useStreamSink(stream);
   const open = !!violation;
   const dismissedRef = useRef(false);
   const startedAtRef = useRef<number | null>(null);

@@ -68,6 +68,49 @@ export function useOptionalProctorMedia(): ProctorMedia | null {
   return useContext(Ctx);
 }
 
+/**
+ * Attaches the shared stream to a <video> this component owns.
+ *
+ * One MediaStream can feed any number of <video> elements, but a single
+ * React ref cannot: it holds one node, so passing the provider's
+ * `videoRef` to several previews meant only the last one to mount ever
+ * received `srcObject`. The others sat black with readyState 0 — which
+ * is exactly what happened to the floating webcam panel while the
+ * hidden 1×1 detector sink held the ref.
+ *
+ * Every preview should call this and render `ref={sink}` instead.
+ */
+export function useStreamSink(
+  stream: MediaStream | null,
+): React.RefObject<HTMLVideoElement | null> {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  // Deliberately no dependency array. The element can unmount and
+  // remount (collapsing the panel, opening the overlay) without
+  // `stream` changing, and assigning a ref never re-runs an effect —
+  // so a dependency-gated version would leave the remounted node
+  // blank. The identity check keeps the per-render cost to one
+  // comparison.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    if (stream) {
+      if (v.srcObject !== stream) {
+        v.srcObject = stream;
+        v.muted = true;
+        v.playsInline = true;
+        void v.play().catch(() => {
+          /* autoplay policy is satisfied by muted + playsInline */
+        });
+      }
+    } else if (v.srcObject) {
+      v.srcObject = null;
+    }
+  });
+
+  return ref;
+}
+
 const CONSTRAINTS: MediaStreamConstraints = {
   video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
   audio: {

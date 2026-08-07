@@ -31,10 +31,15 @@ import {
   VIOLATION_LABEL,
 } from "@/lib/proctoring";
 import { cn } from "@/lib/cn";
+import { useStreamSink } from "./ProctorMediaProvider";
 
 interface ProctorFloatingPanelProps {
   attempt: Attempt;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** The shared session stream. This panel attaches it to its own
+   *  <video> via useStreamSink — it must not reuse the provider's ref,
+   *  because one ref can only hold one element and the hidden detector
+   *  sink already owns that one. */
+  stream: MediaStream | null;
   cameraRunning: boolean;
   cameraError: string | null;
   faceCount: number | null;
@@ -50,7 +55,7 @@ const COLLAPSED_KEY = "swadhyaya-proctoring-collapsed";
 
 export function ProctorFloatingPanel({
   attempt,
-  videoRef,
+  stream,
   cameraRunning,
   cameraError,
   faceCount,
@@ -59,6 +64,7 @@ export function ProctorFloatingPanel({
   onCollapseChange,
   onAddSnapshot,
 }: ProctorFloatingPanelProps) {
+  const videoRef = useStreamSink(stream);
   const [collapsed, setCollapsed] = useState(false);
   const [activeToasts, setActiveToasts] = useState<Violation[]>([]);
   const seenIds = useRef<Set<string>>(new Set());

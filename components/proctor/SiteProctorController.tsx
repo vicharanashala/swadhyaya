@@ -228,7 +228,7 @@ export function SiteProctorController() {
     <>
       <ProctorFloatingPanel
         attempt={attempt}
-        videoRef={videoRef}
+        stream={media?.stream ?? null}
         cameraRunning={live}
         cameraError={face.error}
         faceCount={faceCount}
@@ -245,7 +245,7 @@ export function SiteProctorController() {
       />
       <VibeStyleAnomalyOverlay
         violation={activeAnomaly}
-        videoRef={videoRef}
+        stream={media?.stream ?? null}
         cameraRunning={live}
         faceCount={faceCount}
       />
