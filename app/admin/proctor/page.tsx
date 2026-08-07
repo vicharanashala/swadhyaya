@@ -29,9 +29,10 @@ export default function AdminProctorPage() {
           Proctored attempts
         </h1>
         <p className="mt-1 text-sm text-dim max-w-2xl">
-          Read-only view of the proctored attempts collected by students
-          who opted into monitoring. Opt-in per attempt — no student is
-          proctored unless they pressed <em>Start</em>.
+          Read-only view of proctored sessions, served from the server
+          store — attempts from every student on every machine, not just
+          this browser. Access requires the{" "}
+          <code className="text-ink font-mono">PROCTOR_ADMIN_TOKEN</code>.
         </p>
       </header>
 
@@ -54,19 +55,22 @@ function DisabledView() {
         </h2>
       </div>
       <p className="mt-3 text-sm text-dim leading-relaxed">
-        The admin dashboard reads from{" "}
-        <code className="text-ink font-mono">localStorage</code>; it can
-        only see attempts stored in <em>this browser</em>. To enable
-        the dashboard and the student-side panel:
+        The proctoring API, the student-side detectors and this dashboard
+        are all gated on one flag. To enable them:
       </p>
       <pre className="mt-3 bg-canvas border border-line rounded p-3 text-xs font-mono overflow-x-auto">
 {`# .env.local
-NEXT_PUBLIC_PROCTORING=1`}
+NEXT_PUBLIC_PROCTORING=1
+PROCTOR_ADMIN_TOKEN=$(openssl rand -hex 32)`}
       </pre>
       <p className="mt-3 text-sm text-dim leading-relaxed">
-        then redeploy / restart. The dashboard becomes reachable at{" "}
-        <code className="text-ink font-mono">/admin/proctor</code> and
-        every Test tab shows the consent card.
+        then restart. Enabling the flag also relaxes the camera/mic
+        Permissions-Policy and the CSP in{" "}
+        <code className="text-ink font-mono">next.config.ts</code>, which
+        otherwise block <code className="text-ink font-mono">getUserMedia</code>{" "}
+        outright. Without{" "}
+        <code className="text-ink font-mono">PROCTOR_ADMIN_TOKEN</code> the
+        read endpoints fail closed and this dashboard stays locked.
       </p>
       <div className="mt-6">
         <Link href="/" className="text-xs text-accent hover:underline">

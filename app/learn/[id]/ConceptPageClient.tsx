@@ -19,6 +19,7 @@ import {
   PASS_THRESHOLD,
 } from "@/components/chrome/ConceptCompletionCard";
 import { ProctorPanel } from "@/components/proctor/ProctorPanel";
+import { ProctoringInlineStatus } from "@/components/proctor/ProctoringInlineStatus";
 import { Lock, Check, Sparkles, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -184,6 +185,8 @@ export function ConceptPage({ id }: { id: ConceptId }) {
         <h1 className="font-serif text-3xl text-ink">{concept.title}</h1>
         <p className="mt-1 text-base text-dim">{concept.short}</p>
       </header>
+
+      <ProctoringInlineStatus className="mt-3" />
 
       <nav
         className="flex items-center gap-1 border-b border-line mb-6 overflow-x-auto"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles, Map, Trophy, Layers } from "lucide-react";
 import { CONCEPTS, PHASES } from "@/lib/curriculum";
+import { ProctoringInlineStatus } from "@/components/proctor/ProctoringInlineStatus";
 
 export default function HomePage() {
   return (
@@ -19,6 +20,8 @@ export default function HomePage() {
           <br />
           <span className="text-accent">the way your mind works.</span>
         </h1>
+
+        <ProctoringInlineStatus compact={false} className="mt-6 max-w-xl" />
 
         <p className="mt-6 max-w-2xl text-lg text-dim leading-relaxed">
           From a single number on a line to SVD and eigen-decomposition — see every

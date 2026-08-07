@@ -5,7 +5,7 @@ import { TopNav } from "@/components/chrome/TopNav";
 import { SideRail } from "@/components/chrome/SideRail";
 import { MobileNav } from "@/components/chrome/MobileNav";
 import { A11ySettings } from "@/components/chrome/A11ySettings";
-import { GlobalProctorBanner } from "@/components/proctor/GlobalProctorBanner";
+import { ProctorGate } from "@/components/proctor/ProctorGate";
 import { SiteProctorController } from "@/components/proctor/SiteProctorController";
 
 const dmSans = DM_Sans({
@@ -114,24 +114,28 @@ export default function RootLayout({
       className={`${dmSans.variable} ${sourceSerif.variable} ${lexend.variable}`}
     >
       <body className="bg-canvas text-ink min-h-screen">
-        <a href="#main-content" className="skip-link">
-          Skip to main content
-        </a>
-        <TopNav />
-        <div className="flex">
-          <SideRail />
-          <main
-            id="main-content"
-            className="flex-1 min-h-[calc(100vh-56px)] pb-14 md:pb-0"
-            aria-label="Main content"
-          >
-            {children}
-          </main>
-        </div>
-        <MobileNav />
-        <A11ySettings />
-        <SiteProctorController />
-        <GlobalProctorBanner />
+        {/* Nothing below renders until the camera + microphone are live.
+            ProctorGate owns the single shared MediaStream; when
+            NEXT_PUBLIC_PROCTORING is off it is a pass-through. */}
+        <ProctorGate>
+          <a href="#main-content" className="skip-link">
+            Skip to main content
+          </a>
+          <TopNav />
+          <div className="flex">
+            <SideRail />
+            <main
+              id="main-content"
+              className="flex-1 min-h-[calc(100vh-56px)] pb-14 md:pb-0"
+              aria-label="Main content"
+            >
+              {children}
+            </main>
+          </div>
+          <MobileNav />
+          <A11ySettings />
+          <SiteProctorController />
+        </ProctorGate>
       </body>
     </html>
   );
