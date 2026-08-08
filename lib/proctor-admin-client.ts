@@ -43,6 +43,8 @@ export interface RemoteAttemptFull {
     language: string;
   };
   result?: { score: number; total: number; passed: boolean };
+  penaltyScore?: number;
+  ejectionReason?: string;
 }
 
 export function getAdminToken(): string | null {

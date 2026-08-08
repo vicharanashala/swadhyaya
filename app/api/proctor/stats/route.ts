@@ -40,8 +40,10 @@ export async function GET(req: Request): Promise<NextResponse> {
       active: attempts.filter(
         (a) => a.status === "active" && now - a.lastHeartbeatAt < 30_000,
       ).length,
+      ejected: attempts.filter((a) => a.status === "ejected").length,
       violations: attempts.reduce((n, a) => n + a.violationCount, 0),
       subjects: new Set(attempts.map((a) => a.subjectId)).size,
+      topPenalty: attempts.reduce((m, a) => Math.max(m, a.penaltyScore ?? 0), 0),
     },
   });
 }
