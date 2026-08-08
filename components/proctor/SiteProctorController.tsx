@@ -37,18 +37,26 @@ import {
   listAttempts,
   logViolation,
   type ViolationInput,
+  type AttemptStatus,
   type Violation,
 } from "@/lib/proctoring";
 import {
   closeRemoteAttempt,
   openRemoteAttempt,
   reportRemoteViolation,
+  sendPenaltyUpdate,
   sendRemoteHeartbeat,
 } from "@/lib/proctor-client";
 import { useOptionalProctorMedia } from "./ProctorMediaProvider";
 import { useFaceDetection } from "./useFaceDetection";
 import { useFaceRecognition } from "./useFaceRecognition";
 import { useBlurDetection } from "./useBlurDetection";
+import { useVirtualCamera } from "./useVirtualCamera";
+import { useAntiCheat } from "./useAntiCheat";
+import { useWindowMinimize } from "./useWindowMinimize";
+import { usePipWindow } from "./usePipWindow";
+import { usePenaltyScore, DEFAULT_SEVERITY } from "./usePenaltyScore";
+import { SecurityChallenge } from "./SecurityChallenge";
 import { useVoiceDetection } from "./useVoiceDetection";
 import { useCameraIntegrity } from "./useCameraIntegrity";
 import { useProctor } from "./useProctor";
@@ -83,6 +91,7 @@ const EVIDENCE_TYPES = new Set([
   "face_mismatch",
   "camera_blocked",
   "motion_detected",
+  "virtual_camera",
 ]);
 
 export function SiteProctorController() {
@@ -163,6 +172,38 @@ export function SiteProctorController() {
     [media, refreshAttempt],
   );
 
+  // Penalty score — must exist before onAnomaly (which updates it).
+  const penalty = usePenaltyScore({
+    onFlag: (count) => {
+      // Surface a hint on the third distinct violation. The actual
+      // restart of the lesson is up to the lesson player; we just
+      // raise a visible signal that the threshold has been crossed.
+      const id = attemptIdRef.current;
+      if (id) {
+        void sendPenaltyUpdate(0, false, `flag threshold reached (${count})`);
+      }
+    },
+    onEject: (reason) => {
+      // Best-effort local mark; the server-side eject happens via the
+      // penalty PATCH endpoint for the persistent record.
+      void sendPenaltyUpdate(0, true, reason);
+      const id = attemptIdRef.current;
+      if (id) {
+        try {
+          const raw = window.localStorage.getItem("swadhyaya-proctoring");
+          const store = raw ? JSON.parse(raw) : { attempts: {} as Record<string, Attempt> };
+          if (store.attempts && store.attempts[id]) {
+            store.attempts[id].status = "ejected";
+            store.attempts[id].ejectionReason = reason;
+            window.localStorage.setItem("swadhyaya-proctoring", JSON.stringify(store));
+          }
+        } catch {
+          /* localStorage may be disabled — server still has the record */
+        }
+      }
+    },
+  });
+
   // Detectors debounce internally; this guards against two different
   // detectors reporting the same condition in the same instant.
   const lastByType = useRef<Record<string, number>>({});
@@ -171,9 +212,13 @@ export function SiteProctorController() {
       const now = Date.now();
       if (now - (lastByType.current[a.type] ?? 0) < 3000) return;
       lastByType.current[a.type] = now;
-      void record({ type: a.type, severity: a.severity });
+      // Update the penalty score using the type's default severity band,
+      // unless the caller provided an explicit override.
+      const sev = a.severity ?? DEFAULT_SEVERITY[a.type] ?? 1;
+      penalty.add(sev);
+      void record({ type: a.type, severity: sev });
     },
-    [record],
+    [record, penalty],
   );
 
   // ───────────────────────────────────────────────────────────────────
@@ -212,6 +257,33 @@ export function SiteProctorController() {
   });
 
   useProctor({ attempt, onViolation: refreshAttempt });
+
+  // Anti-cheat: hard-blocks right-click / copy / view-source / save / etc.
+  // The blocks matter more than the reports; the reports are a side effect.
+  useAntiCheat({
+    enabled: live,
+    onAnomaly: (a) => onAnomaly({ type: a.type as ViolationInput["type"], severity: a.severity }),
+  });
+
+  // Virtual camera detection — runs against the active track label and
+  // enumerateDevices. EVIDENCE_TYPES includes virtual_camera, so a
+  // snapshot of the feed that triggered the alarm is captured.
+  useVirtualCamera({
+    enabled: live,
+    stream: media?.stream ?? null,
+    onAnomaly: (a) => onAnomaly({ type: "virtual_camera", severity: a.severity }),
+  });
+
+  // Window minimize vs tab switch distinction.
+  useWindowMinimize({
+    enabled: live,
+    onAnomaly: (a) => onAnomaly({ type: "window_minimized", severity: a.severity }),
+  });
+
+  // Picture-in-Picture proctor feed — opt-in via the floating panel.
+  const pip = usePipWindow({ stream: media?.stream ?? null, enabled: live });
+
+  // (penalty score is declared above so onAnomaly can update it)
 
   // ───────────────────────────────────────────────────────────────────
   // Server heartbeat — lets the dashboard tell a live session from one
@@ -257,6 +329,10 @@ export function SiteProctorController() {
 
   return (
     <>
+      <SecurityChallenge
+        enabled
+        onFail={(a) => onAnomaly({ type: a.type as ViolationInput["type"], severity: a.severity })}
+      />
       <ProctorFloatingPanel
         attempt={attempt}
         stream={media?.stream ?? null}
@@ -264,6 +340,10 @@ export function SiteProctorController() {
         cameraError={face.error}
         faceCount={faceCount}
         detectorBackend={face.backend}
+        penaltyScore={penalty.score}
+        pipSupported={pip.supported}
+        pipActive={pip.active}
+        onTogglePip={pip.toggle}
         identityStatus={
           recognition.registered
             ? recognition.isMatch === null

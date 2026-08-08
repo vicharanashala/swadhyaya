@@ -47,6 +47,12 @@ interface ProctorFloatingPanelProps {
    *  see why detection feels sluggish rather than guessing. */
   detectorBackend?: string | null;
   identityStatus?: "unregistered" | "checking" | "verified" | "mismatch";
+  /** Cumulative penalty score for this attempt. 0 = clean. */
+  penaltyScore?: number;
+  /** Document PiP availability + state for the floating-window toggle. */
+  pipSupported?: boolean;
+  pipActive?: boolean;
+  onTogglePip?: () => void;
   onCollapseChange?: (collapsed: boolean) => void;
   onAddSnapshot?: (violationId: string, dataUrl: string) => void;
 }
@@ -61,6 +67,10 @@ export function ProctorFloatingPanel({
   faceCount,
   detectorBackend,
   identityStatus = "unregistered",
+  penaltyScore,
+  pipSupported,
+  pipActive,
+  onTogglePip,
   onCollapseChange,
   onAddSnapshot,
 }: ProctorFloatingPanelProps) {
@@ -280,6 +290,21 @@ export function ProctorFloatingPanel({
               </span>
               <span className="font-mono text-[10px] text-faint">
                 {detectorBackend}
+              </span>
+            </div>
+          )}
+          {typeof penaltyScore === "number" && (
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-faint">
+                Penalty
+              </span>
+              <span
+                className={cn(
+                  "font-mono text-[10px]",
+                  penaltyScore >= 30 ? "text-warn" : penaltyScore > 0 ? "text-dim" : "text-faint",
+                )}
+              >
+                {penaltyScore}/50
               </span>
             </div>
           )}
