@@ -23,6 +23,7 @@
 // pass-through, so deployments that don't run proctoring are unaffected.
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   Camera,
@@ -39,8 +40,25 @@ import {
 
 const PROCTORING_ON = process.env.NEXT_PUBLIC_PROCTORING === "1";
 
+/** Routes that are never gated.
+ *
+ *  The dashboard is the instructor's review tool. Gating it meant a
+ *  teacher opening /admin/proctor was told "Swadhyaya cannot be used
+ *  without camera and microphone monitoring" and, having declined, was
+ *  locked out of the very screen that shows the evidence. Reviewers are
+ *  not the ones being proctored. */
+const EXEMPT_PREFIXES = ["/admin"];
+
+function isExempt(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return EXEMPT_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
 export function ProctorGate({ children }: { children: React.ReactNode }) {
-  if (!PROCTORING_ON) return <>{children}</>;
+  const pathname = usePathname();
+  if (!PROCTORING_ON || isExempt(pathname)) return <>{children}</>;
   return (
     <ProctorMediaProvider enabled>
       <GateBody>{children}</GateBody>

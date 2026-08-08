@@ -165,6 +165,30 @@ export async function reportRemoteViolation(
   }
 }
 
+export async function sendPenaltyUpdate(
+  delta: number,
+  eject: boolean = false,
+  reason?: string,
+): Promise<void> {
+  if (!enabled() || typeof window === "undefined") return;
+  const id = remoteAttemptId();
+  const token = readToken();
+  if (!id || !token) return;
+  try {
+    await fetch(`/api/proctor/attempts/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-proctor-write-token": token,
+      },
+      body: JSON.stringify({ action: "penalty", delta, eject, reason }),
+      keepalive: true,
+    });
+  } catch {
+    /* best-effort — same posture as sendRemoteHeartbeat */
+  }
+}
+
 export async function sendRemoteHeartbeat(): Promise<void> {
   if (!enabled() || typeof window === "undefined") return;
   const id = remoteAttemptId();

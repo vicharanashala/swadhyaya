@@ -35,6 +35,15 @@ export type ViolationType =
   | "face_mismatch"   // face doesn't match the registered descriptor
   | "blur_detected"   // Laplacian variance below threshold
   | "voice_detected"  // YAMNet classified the audio frame as speech
+  | "virtual_camera"  // OBS / ManyCam / XSplit / etc. detected by device label
+  | "view_source"    // Ctrl+U
+  | "save"           // Ctrl+S — downloads the page
+  | "print"          // Ctrl+P
+  | "new_tab"        // Ctrl+T
+  | "select"         // text selection blocked outside form inputs
+  | "drag"           // image drag blocked outside form inputs
+  | "window_minimized" // window lost focus without the document going hidden
+  | "challenge_failed" // 30s presence challenge missed or wrong answer
   | "motion_detected" // sudden whole-frame change
   | "camera_blocked"; // camera track ended, muted, or covered
 
@@ -63,7 +72,8 @@ export interface Violation {
 export type AttemptStatus =
   | "active"      // currently in the test tab
   | "completed"   // reached threshold + submitted (honourable exit)
-  | "abandoned";  // user closed without finishing
+  | "abandoned"   // user closed without finishing
+  | "ejected";    // proctoring penalty score exceeded the eject threshold
 
 export interface Attempt {
   id: string;
@@ -89,6 +99,11 @@ export interface Attempt {
     total: number;
     passed: boolean;
   };
+  /** Cumulative penalty score — drives FLAG_RESTART_THRESHOLD and
+   *  PENALTY_EJECT_THRESHOLD on the client. */
+  penaltyScore?: number;
+  /** Optional human-readable reason for an ejection. */
+  ejectionReason?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -398,6 +413,15 @@ export const VIOLATION_LABEL: Record<ViolationType, string> = {
   face_mismatch: "Face does not match registration",
   blur_detected: "Camera feed too blurry",
   voice_detected: "Speech detected",
+  virtual_camera: "Virtual camera detected",
+  view_source: "View source attempted",
+  save: "Page save attempted",
+  print: "Print attempted",
+  new_tab: "New tab attempted",
+  select: "Text selection blocked",
+  drag: "Drag blocked",
+  window_minimized: "Window minimized",
+  challenge_failed: "Security challenge failed",
   motion_detected: "Sudden scene change",
   camera_blocked: "Camera blocked or covered",
 };

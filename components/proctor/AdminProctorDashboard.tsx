@@ -166,6 +166,11 @@ export function AdminProctorDashboard() {
   }
 
   const kpis = computeKpis(attempts, now);
+  const ejected = attempts.filter((a) => a.status === "ejected").length;
+  const topPenalty = attempts.reduce(
+    (m, a) => Math.max(m, a.penaltyScore ?? 0),
+    0,
+  );
   const conceptIds = Array.from(new Set(attempts.map((a) => a.conceptId))).sort();
   const filtered = attempts.filter((a) => {
     if (statusFilter !== "all" && a.status !== statusFilter) return false;
@@ -502,7 +507,7 @@ function RowExpandable({
                               {fmtDuration(v.durationMs)}
                             </span>
                           )}
-                          {v.snapshot && (
+                          {(v.evidenceId || v.snapshot) && (
                             <Camera
                               size={10}
                               className="text-accent"
@@ -514,10 +519,20 @@ function RowExpandable({
                               {v.context}
                             </span>
                           )}
+                          {v.type === "virtual_camera" && (
+                            <span className="ml-auto text-[9px] text-warn">
+                              matched device label
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ol>
-                    {a.violations.some((v) => v.snapshot) && (
+                    {/* Evidence lives server-side under `evidenceId`; the
+                        inline `snapshot` data-URL only survives on records
+                        whose upload failed. Guarding on `snapshot` alone
+                        meant the grid never mounted for any normally
+                        stored attempt. */}
+                    {a.violations.some((v) => v.evidenceId || v.snapshot) && (
                       <SnapshotGrid attempts={a} />
                     )}
                   </>

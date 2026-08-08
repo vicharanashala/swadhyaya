@@ -37,17 +37,26 @@ import {
   listAttempts,
   logViolation,
   type ViolationInput,
+  type AttemptStatus,
+  type Violation,
 } from "@/lib/proctoring";
 import {
   closeRemoteAttempt,
   openRemoteAttempt,
   reportRemoteViolation,
+  sendPenaltyUpdate,
   sendRemoteHeartbeat,
 } from "@/lib/proctor-client";
 import { useOptionalProctorMedia } from "./ProctorMediaProvider";
 import { useFaceDetection } from "./useFaceDetection";
 import { useFaceRecognition } from "./useFaceRecognition";
 import { useBlurDetection } from "./useBlurDetection";
+import { useVirtualCamera } from "./useVirtualCamera";
+import { useAntiCheat } from "./useAntiCheat";
+import { useWindowMinimize } from "./useWindowMinimize";
+import { usePipWindow } from "./usePipWindow";
+import { usePenaltyScore, DEFAULT_SEVERITY } from "./usePenaltyScore";
+import { SecurityChallenge } from "./SecurityChallenge";
 import { useVoiceDetection } from "./useVoiceDetection";
 import { useCameraIntegrity } from "./useCameraIntegrity";
 import { useProctor } from "./useProctor";
@@ -60,6 +69,19 @@ import { ShieldCheck } from "lucide-react";
 
 const SESSION_CONCEPT = "_session";
 
+/** How long the full-screen alert stays up. The overlay runs its own
+ *  timer on the same value. */
+const ANOMALY_DISPLAY_MS = 5000;
+
+/** Minimum gap between full-screen alerts.
+ *
+ *  Recording and interrupting are deliberately decoupled. Every anomaly
+ *  is still logged, but a genuinely persistent condition — a student who
+ *  has stepped away — produces a violation every few seconds, and
+ *  re-arming a 5 s takeover that often means it never visibly closes.
+ *  The alert is a nudge; the evidence trail is the record. */
+const OVERLAY_COOLDOWN_MS = 15_000;
+
 /** Types that warrant uploading a camera still as evidence. Clipboard
  *  and focus events don't — a photo of someone's face proves nothing
  *  about a copy/paste, and capturing one anyway is gratuitous. */
@@ -69,6 +91,7 @@ const EVIDENCE_TYPES = new Set([
   "face_mismatch",
   "camera_blocked",
   "motion_detected",
+  "virtual_camera",
 ]);
 
 export function SiteProctorController() {
@@ -149,6 +172,38 @@ export function SiteProctorController() {
     [media, refreshAttempt],
   );
 
+  // Penalty score — must exist before onAnomaly (which updates it).
+  const penalty = usePenaltyScore({
+    onFlag: (count) => {
+      // Surface a hint on the third distinct violation. The actual
+      // restart of the lesson is up to the lesson player; we just
+      // raise a visible signal that the threshold has been crossed.
+      const id = attemptIdRef.current;
+      if (id) {
+        void sendPenaltyUpdate(0, false, `flag threshold reached (${count})`);
+      }
+    },
+    onEject: (reason) => {
+      // Best-effort local mark; the server-side eject happens via the
+      // penalty PATCH endpoint for the persistent record.
+      void sendPenaltyUpdate(0, true, reason);
+      const id = attemptIdRef.current;
+      if (id) {
+        try {
+          const raw = window.localStorage.getItem("swadhyaya-proctoring");
+          const store = raw ? JSON.parse(raw) : { attempts: {} as Record<string, Attempt> };
+          if (store.attempts && store.attempts[id]) {
+            store.attempts[id].status = "ejected";
+            store.attempts[id].ejectionReason = reason;
+            window.localStorage.setItem("swadhyaya-proctoring", JSON.stringify(store));
+          }
+        } catch {
+          /* localStorage may be disabled — server still has the record */
+        }
+      }
+    },
+  });
+
   // Detectors debounce internally; this guards against two different
   // detectors reporting the same condition in the same instant.
   const lastByType = useRef<Record<string, number>>({});
@@ -157,9 +212,13 @@ export function SiteProctorController() {
       const now = Date.now();
       if (now - (lastByType.current[a.type] ?? 0) < 3000) return;
       lastByType.current[a.type] = now;
-      void record({ type: a.type, severity: a.severity });
+      // Update the penalty score using the type's default severity band,
+      // unless the caller provided an explicit override.
+      const sev = a.severity ?? DEFAULT_SEVERITY[a.type] ?? 1;
+      penalty.add(sev);
+      void record({ type: a.type, severity: sev });
     },
-    [record],
+    [record, penalty],
   );
 
   // ───────────────────────────────────────────────────────────────────
@@ -199,6 +258,33 @@ export function SiteProctorController() {
 
   useProctor({ attempt, onViolation: refreshAttempt });
 
+  // Anti-cheat: hard-blocks right-click / copy / view-source / save / etc.
+  // The blocks matter more than the reports; the reports are a side effect.
+  useAntiCheat({
+    enabled: live,
+    onAnomaly: (a) => onAnomaly({ type: a.type as ViolationInput["type"], severity: a.severity }),
+  });
+
+  // Virtual camera detection — runs against the active track label and
+  // enumerateDevices. EVIDENCE_TYPES includes virtual_camera, so a
+  // snapshot of the feed that triggered the alarm is captured.
+  useVirtualCamera({
+    enabled: live,
+    stream: media?.stream ?? null,
+    onAnomaly: (a) => onAnomaly({ type: "virtual_camera", severity: a.severity }),
+  });
+
+  // Window minimize vs tab switch distinction.
+  useWindowMinimize({
+    enabled: live,
+    onAnomaly: (a) => onAnomaly({ type: "window_minimized", severity: a.severity }),
+  });
+
+  // Picture-in-Picture proctor feed — opt-in via the floating panel.
+  const pip = usePipWindow({ stream: media?.stream ?? null, enabled: live });
+
+  // (penalty score is declared above so onAnomaly can update it)
+
   // ───────────────────────────────────────────────────────────────────
   // Server heartbeat — lets the dashboard tell a live session from one
   // whose browser was closed without ending cleanly.
@@ -217,22 +303,47 @@ export function SiteProctorController() {
     return () => window.removeEventListener("pagehide", onHide);
   }, []);
 
-  const activeAnomaly = useMemo(
-    () => (attempt ? deriveActiveAnomaly(attempt.violations, 5000) : null),
-    [attempt],
+  // Explicit overlay lifecycle rather than a time-derived memo.
+  //
+  // This used to be useMemo(() => deriveActiveAnomaly(...), [attempt]).
+  // deriveActiveAnomaly compares against Date.now(), so its result
+  // changes as time passes and not only when `attempt` does — keyed on
+  // [attempt] the memo froze the instant violations stopped arriving and
+  // pinned the alert open permanently.
+  const [overlayViolation, setOverlayViolation] = useState<Violation | null>(
+    null,
   );
+  const lastOverlayAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!attempt) return;
+    const latest = deriveActiveAnomaly(attempt.violations, ANOMALY_DISPLAY_MS);
+    if (!latest || latest.id === overlayViolation?.id) return;
+    const now = Date.now();
+    if (now - lastOverlayAtRef.current < OVERLAY_COOLDOWN_MS) return;
+    lastOverlayAtRef.current = now;
+    setOverlayViolation(latest);
+  }, [attempt, overlayViolation?.id]);
 
   if (!live || !attempt) return null;
 
   return (
     <>
+      <SecurityChallenge
+        enabled
+        onFail={(a) => onAnomaly({ type: a.type as ViolationInput["type"], severity: a.severity })}
+      />
       <ProctorFloatingPanel
         attempt={attempt}
-        videoRef={videoRef}
+        stream={media?.stream ?? null}
         cameraRunning={live}
         cameraError={face.error}
         faceCount={faceCount}
         detectorBackend={face.backend}
+        penaltyScore={penalty.score}
+        pipSupported={pip.supported}
+        pipActive={pip.active}
+        onTogglePip={pip.toggle}
         identityStatus={
           recognition.registered
             ? recognition.isMatch === null
@@ -244,8 +355,10 @@ export function SiteProctorController() {
         }
       />
       <VibeStyleAnomalyOverlay
-        violation={activeAnomaly}
-        videoRef={videoRef}
+        violation={overlayViolation}
+        dismissMs={ANOMALY_DISPLAY_MS}
+        onAck={() => setOverlayViolation(null)}
+        stream={media?.stream ?? null}
         cameraRunning={live}
         faceCount={faceCount}
       />

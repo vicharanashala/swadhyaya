@@ -31,10 +31,15 @@ import {
   VIOLATION_LABEL,
 } from "@/lib/proctoring";
 import { cn } from "@/lib/cn";
+import { useStreamSink } from "./ProctorMediaProvider";
 
 interface ProctorFloatingPanelProps {
   attempt: Attempt;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** The shared session stream. This panel attaches it to its own
+   *  <video> via useStreamSink — it must not reuse the provider's ref,
+   *  because one ref can only hold one element and the hidden detector
+   *  sink already owns that one. */
+  stream: MediaStream | null;
   cameraRunning: boolean;
   cameraError: string | null;
   faceCount: number | null;
@@ -42,6 +47,12 @@ interface ProctorFloatingPanelProps {
    *  see why detection feels sluggish rather than guessing. */
   detectorBackend?: string | null;
   identityStatus?: "unregistered" | "checking" | "verified" | "mismatch";
+  /** Cumulative penalty score for this attempt. 0 = clean. */
+  penaltyScore?: number;
+  /** Document PiP availability + state for the floating-window toggle. */
+  pipSupported?: boolean;
+  pipActive?: boolean;
+  onTogglePip?: () => void;
   onCollapseChange?: (collapsed: boolean) => void;
   onAddSnapshot?: (violationId: string, dataUrl: string) => void;
 }
@@ -50,15 +61,20 @@ const COLLAPSED_KEY = "swadhyaya-proctoring-collapsed";
 
 export function ProctorFloatingPanel({
   attempt,
-  videoRef,
+  stream,
   cameraRunning,
   cameraError,
   faceCount,
   detectorBackend,
   identityStatus = "unregistered",
+  penaltyScore,
+  pipSupported,
+  pipActive,
+  onTogglePip,
   onCollapseChange,
   onAddSnapshot,
 }: ProctorFloatingPanelProps) {
+  const videoRef = useStreamSink(stream);
   const [collapsed, setCollapsed] = useState(false);
   const [activeToasts, setActiveToasts] = useState<Violation[]>([]);
   const seenIds = useRef<Set<string>>(new Set());
@@ -274,6 +290,21 @@ export function ProctorFloatingPanel({
               </span>
               <span className="font-mono text-[10px] text-faint">
                 {detectorBackend}
+              </span>
+            </div>
+          )}
+          {typeof penaltyScore === "number" && (
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-faint">
+                Penalty
+              </span>
+              <span
+                className={cn(
+                  "font-mono text-[10px]",
+                  penaltyScore >= 30 ? "text-warn" : penaltyScore > 0 ? "text-dim" : "text-faint",
+                )}
+              >
+                {penaltyScore}/50
               </span>
             </div>
           )}

@@ -21,10 +21,13 @@ import { useEffect, useRef, useState, useRef as useReactRef } from "react";
 import { AlertTriangle, Camera, ShieldCheck, X } from "lucide-react";
 import type { Violation, ViolationType } from "@/lib/proctoring";
 import { cn } from "@/lib/cn";
+import { useStreamSink } from "./ProctorMediaProvider";
 
 interface VibeStyleAnomalyOverlayProps {
   violation: Violation | null;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** Shared session stream. Attached to this overlay's own <video>
+   *  via useStreamSink — see the note in ProctorFloatingPanel. */
+  stream: MediaStream | null;
   cameraRunning: boolean;
   faceCount: number | null;
   dismissMs?: number;
@@ -119,26 +122,45 @@ function copyFor(type: ViolationType): AnomalyCopy {
 
 export function VibeStyleAnomalyOverlay({
   violation,
-  videoRef,
+  stream,
   cameraRunning,
   faceCount,
   dismissMs = 5000,
   onAck,
 }: VibeStyleAnomalyOverlayProps) {
-  const open = !!violation;
+  const videoRef = useStreamSink(stream);
+  const [dismissed, setDismissed] = useState(false);
   const dismissedRef = useRef(false);
-  const startedAtRef = useRef<number | null>(null);
 
-  // When a new violation opens, record its start time. The overlay
-  // auto-dismisses when `dismissMs` has elapsed since that start.
+  // The overlay owns its own dismissal.
+  //
+  // It previously stored a start time and rendered "auto-dismisses in
+  // ~5s" without ever setting a timer, so it only closed if the parent
+  // happened to pass violation={null}. The parent derived that from
+  // Date.now() inside a useMemo keyed on [attempt] — which stops
+  // recomputing as soon as violations stop arriving. Net effect: the
+  // alert took over the screen and never went away.
+  //
+  // Owning the timer here means the component honours its own copy
+  // regardless of what the parent does.
   useEffect(() => {
-    if (violation) {
-      startedAtRef.current = Date.now();
+    if (!violation) {
+      setDismissed(false);
       dismissedRef.current = false;
-    } else {
-      startedAtRef.current = null;
+      return;
     }
-  }, [violation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setDismissed(false);
+    dismissedRef.current = false;
+    const t = window.setTimeout(() => {
+      dismissedRef.current = true;
+      setDismissed(true);
+      onAck?.();
+    }, dismissMs);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [violation?.id, dismissMs]);
+
+  const open = Boolean(violation) && !dismissed;
 
   if (!open || !violation) return null;
 

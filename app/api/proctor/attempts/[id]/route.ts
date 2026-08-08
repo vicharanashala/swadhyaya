@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import {
   adminTokenConfigured,
   authorizeWrite,
+  bumpPenalty,
   endAttempt,
   getAttempt,
   isAdminRequest,
@@ -59,6 +60,18 @@ export async function PATCH(
   if (action === "heartbeat") {
     const ok = await touchHeartbeat(id);
     return NextResponse.json({ ok });
+  }
+
+  if (action === "penalty") {
+    const delta =
+      typeof body.delta === "number" ? body.delta : Number(body.delta);
+    if (!Number.isFinite(delta) || delta === 0) {
+      return NextResponse.json({ error: "delta must be a non-zero number" }, { status: 400 });
+    }
+    const eject = body.eject === true;
+    const reason = typeof body.reason === "string" ? body.reason : undefined;
+    const updated = await bumpPenalty(id, delta, eject, reason);
+    return NextResponse.json({ attempt: updated });
   }
 
   if (action === "end") {

@@ -56,6 +56,11 @@ export interface ServerAttempt {
     language: string;
   };
   result?: { score: number; total: number; passed: boolean };
+  /** Cumulative penalty score (severity-weighted anomaly tally).
+   *  Drives FLAG_RESTART_THRESHOLD and PENALTY_EJECT_THRESHOLD. */
+  penaltyScore?: number;
+  /** Reason recorded when status === "ejected". */
+  ejectionReason?: string;
   /** sha256 of the write token. The raw token is returned once, at
    *  creation, and never persisted — so a leaked attempt id alone
    *  does not let a third party forge violations against it. */
@@ -262,6 +267,33 @@ export async function appendViolation(
       updated,
     );
     return violation;
+  });
+}
+
+
+export async function bumpPenalty(
+  attemptId: string,
+  delta: number,
+  eject: boolean = false,
+  reason?: string,
+): Promise<PublicAttempt | null> {
+  assertSafeId(attemptId);
+  return withLock(attemptId, async () => {
+    const attempt = await readAttemptFile(attemptId);
+    if (!attempt) return null;
+    const nextScore = (attempt.penaltyScore ?? 0) + delta;
+    const updated: ServerAttempt = {
+      ...attempt,
+      penaltyScore: Math.max(0, nextScore),
+      ...(eject
+        ? { status: "ejected" as const, endedAt: Date.now(), ejectionReason: reason ?? "penalty threshold" }
+        : {}),
+    };
+    await writeJsonAtomic(
+      path.join(attemptsDir(), `${attemptId}.json`),
+      updated,
+    );
+    return toPublic(updated);
   });
 }
 

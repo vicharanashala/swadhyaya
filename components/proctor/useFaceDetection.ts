@@ -13,10 +13,10 @@
 // Now a MediaPipe short-range detector runs on TF.js inside a Web
 // Worker, and the count is the number of boxes it returns.
 //
-// Anomalies are only raised after a run of consecutive confirming
-// frames (CONFIRM_FRAMES). A single frame where someone reaches for a
-// glass of water is not misconduct, and at 3 fps a one-frame trigger
-// would fire constantly.
+// Anomalies are raised only when most of a short sliding window agrees
+// (see CONFIRM_RATIO). A single frame where someone reaches for a glass
+// of water is not misconduct, and at 3 fps a one-frame trigger would
+// fire constantly.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isLookingAway, type DetectedFace } from "@/lib/proctor-vision";
@@ -44,8 +44,21 @@ export interface FaceDetection {
 
 /** Camera + model need a few seconds before frames are trustworthy. */
 const GRACE_MS = 8000;
-/** Consecutive frames that must agree before an anomaly is raised. */
-const CONFIRM_FRAMES = 3;
+
+/** Sliding window used to confirm an anomaly, in frames. */
+const WINDOW_FRAMES = 6;
+/** Fraction of the window that must agree before the anomaly is raised.
+ *
+ *  This replaced a strictly-consecutive counter, which turned out to be
+ *  brittle in exactly the way that matters: a detector that misses every
+ *  other frame — normal for a face at an angle, in poor light, or on the
+ *  CPU backend — reset the streak forever and NOTHING was ever reported.
+ *  Measured on a flapping feed: 21 candidate frames, 0 anomalies raised.
+ *
+ *  A ratio over a window tolerates the odd dropped frame while still
+ *  refusing to fire on a genuinely ambiguous signal (alternating 0/1
+ *  faces scores 0.5 and stays quiet, which is the honest answer). */
+const CONFIRM_RATIO = 0.7;
 
 export function useFaceDetection(opts: FaceDetectionOpts): FaceDetection {
   const { videoRef, enabled, onAnomaly, onFaceCount, intervalMs = 333 } = opts;
@@ -59,10 +72,10 @@ export function useFaceDetection(opts: FaceDetectionOpts): FaceDetection {
   const modelReadyRef = useRef(false);
   const graceRef = useRef(false);
   const inFlightRef = useRef(false);
-  const streakRef = useRef<Record<FaceAnomalyType, number>>({
-    no_face: 0,
-    multiple_faces: 0,
-    looking_away: 0,
+  const historyRef = useRef<Record<FaceAnomalyType, boolean[]>>({
+    no_face: [],
+    multiple_faces: [],
+    looking_away: [],
   });
 
   const onAnomalyRef = useRef(onAnomaly);
@@ -72,20 +85,24 @@ export function useFaceDetection(opts: FaceDetectionOpts): FaceDetection {
     onFaceCountRef.current = onFaceCount;
   });
 
-  // Raise an anomaly only once a streak reaches CONFIRM_FRAMES, then
-  // reset so it can fire again if the condition persists.
-  const bump = useCallback((type: FaceAnomalyType, severity: number) => {
-    const next = streakRef.current[type] + 1;
-    streakRef.current[type] = next;
-    if (next >= CONFIRM_FRAMES) {
-      streakRef.current[type] = 0;
-      onAnomalyRef.current?.({ type, severity });
-    }
-  }, []);
+  // Record this frame's verdict for one anomaly type and raise it once
+  // enough of the recent window agrees. Every frame must report every
+  // type — including the negative — or the window goes stale.
+  const observe = useCallback(
+    (type: FaceAnomalyType, anomalous: boolean, severity: number) => {
+      const h = historyRef.current[type];
+      h.push(anomalous);
+      if (h.length > WINDOW_FRAMES) h.shift();
+      if (h.length < WINDOW_FRAMES) return;
 
-  const clearStreak = useCallback((type: FaceAnomalyType) => {
-    streakRef.current[type] = 0;
-  }, []);
+      const agreeing = h.reduce((n, v) => n + (v ? 1 : 0), 0);
+      if (agreeing / h.length >= CONFIRM_RATIO) {
+        historyRef.current[type] = [];
+        onAnomalyRef.current?.({ type, severity });
+      }
+    },
+    [],
+  );
 
   // ── Worker lifecycle ────────────────────────────────────────────────
   useEffect(() => {
@@ -134,20 +151,13 @@ export function useFaceDetection(opts: FaceDetectionOpts): FaceDetection {
 
         if (graceRef.current) return;
 
-        if (count === 0) {
-          bump("no_face", 2);
-          clearStreak("multiple_faces");
-          clearStreak("looking_away");
-        } else if (count > 1) {
-          bump("multiple_faces", 3);
-          clearStreak("no_face");
-          clearStreak("looking_away");
-        } else {
-          clearStreak("no_face");
-          clearStreak("multiple_faces");
-          if (isLookingAway(faces[0]!)) bump("looking_away", 1);
-          else clearStreak("looking_away");
-        }
+        observe("no_face", count === 0, 2);
+        observe("multiple_faces", count > 1, 3);
+        observe(
+          "looking_away",
+          count === 1 && isLookingAway(faces[0]!),
+          1,
+        );
       }
     };
 
@@ -166,7 +176,7 @@ export function useFaceDetection(opts: FaceDetectionOpts): FaceDetection {
       inFlightRef.current = false;
       setBackend(null);
     };
-  }, [enabled, bump, clearStreak]);
+  }, [enabled, observe]);
 
   // ── Grace period ────────────────────────────────────────────────────
   useEffect(() => {
